@@ -733,13 +733,11 @@ function SavedWordCard({ word, open, translationVisible, aiConnected, enriching,
   onHoverStart: () => void; onHoverEnd: () => void; onToggle: () => void; onMoveFirst: () => void; onDismiss: () => void;
   onEnrich: () => void; onSync: () => void; onDelete: () => void;
 }) {
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); }, []);
   return <section className={`word-card word-row ${open ? "expanded" : ""}`} data-word-card-id={word.id}
     onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onDismiss(); }}
     onKeyDown={(event) => { if (event.key === "Escape") onDismiss(); }}>
-    <button type="button" className="word-row-trigger" onClick={() => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); clickTimerRef.current = setTimeout(onToggle, 230); }} onDoubleClick={() => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); clickTimerRef.current = null; onMoveFirst(); }} aria-expanded={open} aria-label={`${word.text}${translationVisible ? `，${word.translation}` : "，点击显示释义"}；双击置顶`}>
+    <button type="button" className="word-row-trigger" onClick={(event) => { if (event.detail > 1) return; onToggle(); }} onDoubleClick={onMoveFirst} aria-expanded={open} aria-label={`${word.text}${translationVisible ? `，${word.translation}` : "，点击显示释义"}；双击置顶`}>
       <span className="word-row-text">{word.text}{word.text.includes(" ") && <span className="phrase-badge">词组</span>}</span>{translationVisible && <span className="word-row-translation">{word.translation}</span>}
     </button>
     <div className="word-row-reveal" aria-hidden={!open}><div className="word-row-reveal-inner">
