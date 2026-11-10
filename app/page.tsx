@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bookmark, Check, Highlighter, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { BarChart3, BookOpen, Bookmark, Check, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -161,12 +161,17 @@ export default function Home() {
   const movingWordRef = useRef(false);
 
   const activeArticle = articles.find((item) => item.id === activeArticleId) || articles[0];
-  const filteredWords = words.filter((item) => `${item.text} ${item.translation}`.toLowerCase().includes(query.toLowerCase()));
+  const isPhraseBook = tab === "phrases";
+  const unit = isPhraseBook ? "词组" : "单词";
+  const singleWords = useMemo(() => words.filter((item) => !item.text.includes(" ")), [words]);
+  const phrases = useMemo(() => words.filter((item) => item.text.includes(" ")), [words]);
+  const bookItems = isPhraseBook ? phrases : singleWords;
+  const filteredWords = bookItems.filter((item) => `${item.text} ${item.translation}`.toLowerCase().includes(query.toLowerCase()));
   const allFilteredWordsSelected = filteredWords.length > 0 && filteredWords.every((word) => selectedWordIds?.has(word.id));
   const filteredSentences = sentences.filter((item) => `${item.text} ${item.translation}`.toLowerCase().includes(query.toLowerCase()));
   const savedWordSet = useMemo(() => new Set(words.map((item) => item.text.toLowerCase())), [words]);
   const savedSentenceTexts = useMemo(() => sentences.map((item) => item.text), [sentences]);
-  const savedPhraseTexts = useMemo(() => words.filter((item) => item.text.includes(" ")).map((item) => item.text), [words]);
+  const savedPhraseTexts = useMemo(() => phrases.map((item) => item.text), [phrases]);
   useReadingTimer(activeArticle?.id ?? 0, tab === "read");
   const savedWordTexts = useMemo(() => words.map((item) => item.text), [words]);
   const articleById = useMemo(() => new Map(articles.map((article) => [article.id, article])), [articles]);
@@ -253,6 +258,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    queueMicrotask(() => { setSelectedWordIds(null); setPinnedWordId(null); setExpandedWordId(null); setRevealedWordIds([]); });
+  }, [tab]);
+
+  useEffect(() => {
     try { if (localStorage.getItem("gist-kaoyan-highlight") === "off") queueMicrotask(() => setKaoyanOn(false)); } catch { /* Device preference only. */ }
   }, []);
 
@@ -326,7 +335,7 @@ export default function Home() {
       const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-selection", ...selection, articleId: activeArticle.id, articleTitle: activeArticle.title }) });
       const data = await json<{ error?: string; item: SavedWord | SavedSentence }>(response);
       if (!response.ok) throw new Error(data.error);
-      if (selection.type !== "sentence") { const item = data.item as SavedWord; setWords((items) => [item, ...items.filter((x) => x.id !== item.id)]); if (selection.type === "phrase") toast.success("词组已加入单词本"); else if (item.text.toLowerCase() !== selection.text.toLowerCase()) toast.success(`已还原为 ${item.text} 并加入单词本`); else toast.success("已加入单词本"); if (aiConnected) void enrichWord(item.id); }
+      if (selection.type !== "sentence") { const item = data.item as SavedWord; setWords((items) => [item, ...items.filter((x) => x.id !== item.id)]); if (selection.type === "phrase") toast.success("已加入词组本"); else if (item.text.toLowerCase() !== selection.text.toLowerCase()) toast.success(`已还原为 ${item.text} 并加入单词本`); else toast.success("已加入单词本"); if (aiConnected) void enrichWord(item.id); }
       else { const item = data.item as SavedSentence; setSentences((items) => [item, ...items.filter((x) => x.id !== item.id)]); }
       if (selection.type === "sentence") toast.success("已加入句子本"); setSelection(null);
     } catch { toast.error("保存失败，请稍后重试"); } finally { setSaving(false); }
@@ -507,11 +516,11 @@ export default function Home() {
 
   async function enrichMissingWords() {
     if (!deepseekConnected) { setAiOpen(true); toast.info("请先连接 DeepSeek API"); return; }
-    const batch = words.filter((word) => !word.similarJson && !enrichingIds.includes(word.id)).slice(0, 10);
-    if (!batch.length) return toast.info("所有单词都已生成词汇联想");
+    const batch = bookItems.filter((word) => !word.similarJson && !enrichingIds.includes(word.id)).slice(0, 10);
+    if (!batch.length) return toast.info(`所有${unit}都已生成联想`);
     let completed = 0;
     for (const word of batch) if (await enrichWord(word.id)) completed += 1;
-    if (completed) toast.success(`本次已生成 ${completed} 个单词的词汇联想`);
+    if (completed) toast.success(`已生成 ${completed} 个${unit}的联想`);
   }
 
   async function connectMaimemo() {
@@ -595,6 +604,70 @@ export default function Home() {
 
   const wordMap = useMemo(() => Object.fromEntries(words.map((item) => [item.text.toLowerCase(), item.translation])), [words]);
 
+  const wordBookView = (
+          <>
+            <LibraryHeader
+              title={isPhraseBook ? "词组本" : "单词本"}
+              subtitle={selectedWordIds === null ? undefined : `选择要删除的${unit}`}
+              query={query}
+              setQuery={setQuery}
+              count={bookItems.length}
+              action={selectedWordIds === null ? (
+                <>
+                    <Button variant="outline" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}{translationsHidden ? "显示全部释义" : "隐藏全部释义"}</Button>
+                    <Button variant="outline" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()}><Sparkles className="size-4" />生成联想{bookItems.filter((word) => !word.similarJson).length > 10 ? "（前10个）" : ""}</Button>
+                    {!isPhraseBook && <Button variant="outline" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))}>{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}批量同步{words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).length > 30 ? "前30词" : ""}</Button>}
+                  <Button variant="outline" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection}><Trash2 className="size-4" />批量删除</Button>
+                </>
+              ) : (
+                <>
+                  <span className="text-sm text-muted-foreground" role="status">已选 {selectedWordIds.size} 个</span>
+                  <Button variant="outline" className="rounded-xl" disabled={deletingWords || !filteredWords.length} onClick={() => setSelectedWordIds(new Set(allFilteredWordsSelected ? [] : filteredWords.map((word) => word.id)))}>
+                    {allFilteredWordsSelected ? "取消全选" : "全选当前结果"}
+                  </Button>
+                  <Button variant="outline" className="rounded-xl" disabled={deletingWords} onClick={() => setSelectedWordIds(null)}>退出多选</Button>
+                  <AlertDialog open={confirmWordDeletion} onOpenChange={(open) => { if (!deletingWords) setConfirmWordDeletion(open); }}>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" className="rounded-xl text-destructive" disabled={!selectedWordIds.size || deletingWords}><Trash2 className="size-4" />删除所选</Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onEscapeKeyDown={(event) => { if (deletingWords) event.preventDefault(); }}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>删除选中的 {selectedWordIds.size} 个{unit}？</AlertDialogTitle>
+                        <AlertDialogDescription>删除后无法撤销。</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={deletingWords}>取消</AlertDialogCancel>
+                        <Button className="bg-destructive text-black hover:bg-destructive/85" disabled={!selectedWordIds.size || deletingWords} onClick={() => void deleteSelectedWords()}>
+                          {deletingWords ? <><Loader2 className="size-4 animate-spin" />正在删除</> : "确认删除"}
+                        </Button>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
+            />
+            {filteredWords.length ? <div ref={setWordGridElement} className={`word-grid ${expandedColumn >= 0 ? "has-expanded" : ""} ${translationsHidden ? "translations-hidden" : ""}`} style={{ gridTemplateColumns: wordColumnWidths }}>
+            {wordColumns.map((column, columnIndex) => <div className="word-column" key={columnIndex}>{column.map((word) => selectedWordIds === null ? <SavedWordCard key={word.id} word={word} open={expandedWordId === word.id} translationVisible={!translationsHidden || revealedWordIds.includes(word.id)} aiConnected={deepseekConnected} enriching={enrichingIds.includes(word.id)} syncing={syncingIds.includes(word.id)}
+                onHoverStart={() => { if (!translationsHidden && (pinnedWordId === null || pinnedWordId === word.id)) setExpandedWordId(word.id); }}
+                onHoverEnd={() => { if (pinnedWordId !== word.id) setExpandedWordId((current) => current === word.id ? null : current); }}
+                onToggle={() => { if (translationsHidden) { setRevealedWordIds((ids) => ids.includes(word.id) ? ids.filter((id) => id !== word.id) : [...ids, word.id]); return; } const next = pinnedWordId === word.id ? null : word.id; setPinnedWordId(next); setExpandedWordId(next); }}
+                onMoveFirst={() => void moveWordFirst(word.id)}
+                onDismiss={() => { setPinnedWordId(null); setExpandedWordId(null); }}
+                onEnrich={() => void enrichWord(word.id, Boolean(word.similarJson))} onSync={() => void syncWords([word.id])} onDelete={() => void removeItem("word", word.id)} /> : (
+                  <label key={word.id} className="word-card word-row">
+                    <span className="word-row-trigger word-selection">
+                      <input type="checkbox" aria-label={`选择 ${word.text}`} checked={selectedWordIds.has(word.id)} disabled={deletingWords} onChange={() => toggleWordSelection(word.id)} />
+                      <span>
+                        <span className="word-row-text">{word.text}</span>
+                        {(!translationsHidden || revealedWordIds.includes(word.id)) && <span className="word-row-translation">{word.translation}</span>}
+                      </span>
+                    </span>
+                  </label>
+                ))}</div>)}
+            </div> : <EmptyLibrary icon={isPhraseBook ? <Layers /> : <Bookmark />} text={bookItems.length ? `没有符合搜索条件的${unit}。` : `划选文章中的${unit}，它会出现在这里。`} setTab={setTab} />}
+          </>
+  );
+
   return (
     <main className="app-shell">
       <Toaster position="top-center" theme="dark" />
@@ -602,7 +675,8 @@ export default function Home() {
         <header className="topbar">
           <TabsList className="reader-tabs" aria-label="页面导航">
             <TabsTrigger value="read" className="reader-tab" aria-label="阅读" title="阅读"><BookOpen /><span className="reader-tab-label">阅读</span></TabsTrigger>
-            <TabsTrigger value="words" className="reader-tab" aria-label="单词本" title="单词本"><Bookmark /><span className="reader-tab-label">单词本</span><span className="reader-tab-count">{words.length}</span></TabsTrigger>
+            <TabsTrigger value="words" className="reader-tab" aria-label="单词本" title="单词本"><Bookmark /><span className="reader-tab-label">单词本</span><span className="reader-tab-count">{singleWords.length}</span></TabsTrigger>
+            <TabsTrigger value="phrases" className="reader-tab" aria-label="词组本" title="词组本"><Layers /><span className="reader-tab-label">词组本</span><span className="reader-tab-count">{phrases.length}</span></TabsTrigger>
             <TabsTrigger value="sentences" className="reader-tab" aria-label="句子本" title="句子本"><Library /><span className="reader-tab-label">句子本</span><span className="reader-tab-count">{sentences.length}</span></TabsTrigger>
             <TabsTrigger value="stats" className="reader-tab" aria-label="统计" title="阅读统计"><BarChart3 /><span className="reader-tab-label">统计</span></TabsTrigger>
           </TabsList>
@@ -644,69 +718,10 @@ export default function Home() {
         <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article className="reader-panel"><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? `导入于 ${formatImportDate(activeArticle.createdAt)}` : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
     : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · 发表于 {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文链接</a></p>}</div></div><div className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
-          <aside ref={translationFloatRef} className="translation-float" hidden={!selection} aria-live="polite">{selection ? <div className="selection-card"><div className="selection-type"><Languages className="size-4" />{selection.type === "word" ? "单词" : selection.type === "phrase" ? "词组 · 存到单词本" : "句子 · 存到句子本"}{selection.type === "phrase" && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "sentence" })}>改存句子本</button>}{selection.type === "sentence" && selection.text.split(" ").length <= 8 && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "phrase" })}>改存为词组</button>}</div><p className="selected-text">{selection.text}</p><div className="translation-box"><span>中文释义</span>{selection.loading ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在实时翻译…</p> : <p>{selection.translation}</p>}</div><Button className="w-full rounded-xl" disabled={selection.loading || selection.error || saving} onClick={() => void saveSelection()}>{saving && <Loader2 className="size-4 animate-spin" />}收藏</Button></div> : null}</aside></div></TabsContent>
+          <aside ref={translationFloatRef} className="translation-float" hidden={!selection} aria-live="polite">{selection ? <div className="selection-card"><div className="selection-type"><Languages className="size-4" />{selection.type === "word" ? "单词" : selection.type === "phrase" ? "词组 · 存到词组本" : "句子 · 存到句子本"}{selection.type === "phrase" && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "sentence" })}>改存句子本</button>}{selection.type === "sentence" && selection.text.split(" ").length <= 8 && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "phrase" })}>改存为词组</button>}</div><p className="selected-text">{selection.text}</p><div className="translation-box"><span>中文释义</span>{selection.loading ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在实时翻译…</p> : <p>{selection.translation}</p>}</div><Button className="w-full rounded-xl" disabled={selection.loading || selection.error || saving} onClick={() => void saveSelection()}>{saving && <Loader2 className="size-4 animate-spin" />}收藏</Button></div> : null}</aside></div></TabsContent>
 
-          <TabsContent value="words" className="library-page">
-            <LibraryHeader
-              title="单词本"
-              subtitle={selectedWordIds === null ? undefined : "选择要删除的单词"}
-              query={query}
-              setQuery={setQuery}
-              count={words.length}
-              action={selectedWordIds === null ? (
-                <>
-                    <Button variant="outline" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}{translationsHidden ? "显示全部释义" : "隐藏全部释义"}</Button>
-                    <Button variant="outline" className="rounded-xl" disabled={!words.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()}><Sparkles className="size-4" />生成词汇联想{words.filter((word) => !word.similarJson).length > 10 ? "（前10词）" : ""}</Button>
-                    <Button variant="outline" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))}>{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}批量同步{words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).length > 30 ? "前30词" : ""}</Button>
-                  <Button variant="outline" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection}><Trash2 className="size-4" />批量删除</Button>
-                </>
-              ) : (
-                <>
-                  <span className="text-sm text-muted-foreground" role="status">已选 {selectedWordIds.size} 个</span>
-                  <Button variant="outline" className="rounded-xl" disabled={deletingWords || !filteredWords.length} onClick={() => setSelectedWordIds(new Set(allFilteredWordsSelected ? [] : filteredWords.map((word) => word.id)))}>
-                    {allFilteredWordsSelected ? "取消全选" : "全选当前结果"}
-                  </Button>
-                  <Button variant="outline" className="rounded-xl" disabled={deletingWords} onClick={() => setSelectedWordIds(null)}>退出多选</Button>
-                  <AlertDialog open={confirmWordDeletion} onOpenChange={(open) => { if (!deletingWords) setConfirmWordDeletion(open); }}>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" className="rounded-xl text-destructive" disabled={!selectedWordIds.size || deletingWords}><Trash2 className="size-4" />删除所选</Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent onEscapeKeyDown={(event) => { if (deletingWords) event.preventDefault(); }}>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>删除选中的 {selectedWordIds.size} 个单词？</AlertDialogTitle>
-                        <AlertDialogDescription>这些单词将从 Gist 单词本中移除，删除后无法撤销。</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel disabled={deletingWords}>取消</AlertDialogCancel>
-                        <Button className="bg-destructive text-black hover:bg-destructive/85" disabled={!selectedWordIds.size || deletingWords} onClick={() => void deleteSelectedWords()}>
-                          {deletingWords ? <><Loader2 className="size-4 animate-spin" />正在删除</> : "确认删除"}
-                        </Button>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </>
-              )}
-            />
-            {filteredWords.length ? <div ref={setWordGridElement} className={`word-grid ${expandedColumn >= 0 ? "has-expanded" : ""} ${translationsHidden ? "translations-hidden" : ""}`} style={{ gridTemplateColumns: wordColumnWidths }}>
-            {wordColumns.map((column, columnIndex) => <div className="word-column" key={columnIndex}>{column.map((word) => selectedWordIds === null ? <SavedWordCard key={word.id} word={word} open={expandedWordId === word.id} translationVisible={!translationsHidden || revealedWordIds.includes(word.id)} aiConnected={deepseekConnected} enriching={enrichingIds.includes(word.id)} syncing={syncingIds.includes(word.id)}
-                onHoverStart={() => { if (!translationsHidden && (pinnedWordId === null || pinnedWordId === word.id)) setExpandedWordId(word.id); }}
-                onHoverEnd={() => { if (pinnedWordId !== word.id) setExpandedWordId((current) => current === word.id ? null : current); }}
-                onToggle={() => { if (translationsHidden) { setRevealedWordIds((ids) => ids.includes(word.id) ? ids.filter((id) => id !== word.id) : [...ids, word.id]); return; } const next = pinnedWordId === word.id ? null : word.id; setPinnedWordId(next); setExpandedWordId(next); }}
-                onMoveFirst={() => void moveWordFirst(word.id)}
-                onDismiss={() => { setPinnedWordId(null); setExpandedWordId(null); }}
-                onEnrich={() => void enrichWord(word.id, Boolean(word.similarJson))} onSync={() => void syncWords([word.id])} onDelete={() => void removeItem("word", word.id)} /> : (
-                  <label key={word.id} className="word-card word-row">
-                    <span className="word-row-trigger word-selection">
-                      <input type="checkbox" aria-label={`选择 ${word.text}`} checked={selectedWordIds.has(word.id)} disabled={deletingWords} onChange={() => toggleWordSelection(word.id)} />
-                      <span>
-                        <span className="word-row-text">{word.text}</span>
-                        {(!translationsHidden || revealedWordIds.includes(word.id)) && <span className="word-row-translation">{word.translation}</span>}
-                      </span>
-                    </span>
-                  </label>
-                ))}</div>)}
-            </div> : <EmptyLibrary icon={<Bookmark />} text={words.length ? "没有符合搜索条件的单词。" : "划选文章中的单词，它会出现在这里。"} setTab={setTab} />}
-          </TabsContent>
+          <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>
+          <TabsContent value="phrases" className="library-page">{wordBookView}</TabsContent>
 
           <TabsContent value="sentences" className="library-page"><LibraryHeader title="句子本" query={query} setQuery={setQuery} count={sentences.length} />{filteredSentences.length ? <div className="sentence-list">{filteredSentences.map((sentence) => <section className="sentence-card" key={sentence.id}><div className="sentence-english">{tokenize(sentence.text).map((token, index) => /^[A-Za-z]/.test(token) ? <WordHover key={`${token}-${index}`} word={token} articleId={sentence.articleId} known={wordMap[token.toLowerCase()]} mode={translationMode} /> : <span key={`${token}-${index}`}>{token}</span>)}</div><p className="sentence-translation">{sentence.translation}</p><div className="sentence-meta"><span>来自《{sourceLabel(sentence.articleId, sentence.articleTitle)}》</span><Button variant="ghost" size="icon" onClick={() => void removeItem("sentence", sentence.id)} aria-label="删除"><Trash2 /></Button></div></section>)}</div> : <EmptyLibrary icon={<Library />} text="划选文章中的句子，它会出现在这里。" setTab={setTab} />}</TabsContent>
           <TabsContent value="stats" className="library-page"><ReadingStats active={tab === "stats"} onOpenArticle={(id) => { setActiveArticleId(id); setTab("read"); }}>{tab === "stats" && <KaoyanCoverage articles={articles} savedWords={savedWordTexts} />}</ReadingStats></TabsContent>
@@ -738,7 +753,7 @@ function SavedWordCard({ word, open, translationVisible, aiConnected, enriching,
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onDismiss(); }}
     onKeyDown={(event) => { if (event.key === "Escape") onDismiss(); }}>
     <button type="button" className="word-row-trigger" onClick={(event) => { if (event.detail > 1) return; onToggle(); }} onDoubleClick={onMoveFirst} aria-expanded={open} aria-label={`${word.text}${translationVisible ? `，${word.translation}` : "，点击显示释义"}；双击置顶`}>
-      <span className="word-row-text">{word.text}{word.text.includes(" ") && <span className="phrase-badge">词组</span>}</span>{translationVisible && <span className="word-row-translation">{word.translation}</span>}
+      <span className="word-row-text">{word.text}</span>{translationVisible && <span className="word-row-translation">{word.translation}</span>}
     </button>
     <div className="word-row-reveal" aria-hidden={!open}><div className="word-row-reveal-inner">
       <div className="word-row-related">{word.similarJson && word.lookalikeJson ? <><RelatedWords title="意思相近" raw={word.similarJson} /><RelatedWords title="长得相像" raw={word.lookalikeJson} /></> : <div className="word-popover-pending">{enriching ? <><Loader2 className="size-4 animate-spin" />正在生成词汇联想…</> : aiConnected ? "尚未生成词汇联想" : "连接 AI 接口后可生成词汇联想"}</div>}</div>
