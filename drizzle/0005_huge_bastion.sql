@@ -1,0 +1,1 @@
+ALTER TABLE `articles` ADD `translation_provider` text DEFAULT 'baidu' NOT NULL;

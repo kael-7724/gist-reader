@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>登录 · Gist</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root { --bg:#000; --fg:#fff; --muted:#8f8f8f; --line:#2c2c2c; --line-strong:#5a5a5a; --error:#ff8a7a; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: grid; place-items: center; padding: 32px 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { width: 100%; max-width: 360px; }
+  .brand { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 40px; }
+  .mark { display: block; width: 72px; height: 72px; border-radius: 16px; }
+  form { display: grid; gap: 14px; }
+  label { display: grid; gap: 7px; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
+  input {
+    width: 100%; height: 48px; padding: 0 14px; border-radius: 12px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    font: 16px/1 system-ui, -apple-system, sans-serif; letter-spacing: .01em;
+    transition: border-color .15s;
+  }
+  input:hover { border-color: var(--line-strong); }
+  input:focus { outline: none; border-color: var(--fg); }
+  input:-webkit-autofill { -webkit-text-fill-color: var(--fg); -webkit-box-shadow: 0 0 0 40px #000 inset; caret-color: var(--fg); }
+  button {
+    margin-top: 10px; height: 48px; border: 1px solid var(--fg); border-radius: 12px;
+    background: var(--fg); color: var(--bg); font: 600 15px/1 system-ui, -apple-system, "PingFang SC", sans-serif;
+    letter-spacing: .2em; cursor: pointer; transition: background .15s, color .15s;
+  }
+  button:hover { background: transparent; color: var(--fg); }
+  button:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+  .error { min-height: 22px; margin: 2px 0 0; color: var(--error); font-size: 13px; text-align: center; }
+  .error:empty { visibility: hidden; }
+  footer { margin-top: 36px; text-align: center; color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <img class="mark" src="/login-mark.png" alt="Gist" width="72" height="72">
+  </div>
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{NEXT}}">
+    <label>用户名<input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required value="{{USERNAME}}" {{USER_FOCUS}}></label>
+    <label>密码<input name="password" type="password" autocomplete="current-password" required {{PASS_FOCUS}}></label>
+    <button type="submit">登 录</button>
+    <p class="error" role="alert">{{ERROR}}</p>
+  </form>
+  <footer>没有账号？请向网站管理员索取</footer>
+</main>
+</body>
+</html>

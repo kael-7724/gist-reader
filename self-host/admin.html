@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gist 账号管理</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<style>
+  :root { --bg:#f7f6f3; --card:#fff; --ink:#1f1f1c; --muted:#6b6a64; --line:#e4e2dc; --accent:#2f5d50; --danger:#a33a2c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#171716; --card:#21211f; --ink:#ecebe6; --muted:#a3a19a; --line:#34332f; --accent:#7fb7a4; --danger:#e27b6c; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  p.lead { color:var(--muted); margin:0 0 24px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:20px; }
+  h2 { font-size:16px; margin:0 0 12px; }
+  form { display:flex; gap:8px; flex-wrap:wrap; }
+  input { flex:1 1 200px; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink); font:inherit; }
+  button { padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); font:inherit; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.danger { color:var(--danger); }
+  .hint { color:var(--muted); font-size:13px; margin-top:8px; }
+  .user { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 0; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .user:first-child { border-top:0; }
+  .user .name { font-weight:600; }
+  .user .meta { color:var(--muted); font-size:13px; }
+  .actions { display:flex; gap:8px; }
+  .result { display:none; border-color:var(--accent); }
+  .result pre { white-space:pre-wrap; word-break:break-all; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:12px; margin:8px 0; font:13px/1.6 ui-monospace,Menlo,Consolas,monospace; }
+  .empty { color:var(--muted); }
+  .error { color:var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Gist 账号管理</h1>
+  <p class="lead">给朋友开账号。每个账号的文章、单词本、句子本和 DeepSeek/墨墨连接都是分开的，互相看不到。</p>
+
+  <section class="result" id="result">
+    <h2 id="result-title">账号已创建</h2>
+    <p>把下面这段发给对方。<strong>密码只显示这一次</strong>，关掉页面后就看不到了，忘了可以点「重置密码」。</p>
+    <pre id="result-text"></pre>
+    <button id="copy" type="button">复制</button>
+  </section>
+
+  <section>
+    <h2>新建账号</h2>
+    <form id="create">
+      <input id="username" name="username" placeholder="用户名，例如 xiaoming" autocomplete="off" required pattern="[a-z0-9_-]{2,32}">
+      <button class="primary" type="submit">创建</button>
+    </form>
+    <div class="hint">只能用小写字母、数字、- 和 _，2–32 位。密码会自动生成。</div>
+    <div class="hint error" id="create-error"></div>
+  </section>
+
+  <section>
+    <h2>朋友的账号</h2>
+    <div id="list"><div class="empty">加载中…</div></div>
+  </section>
+</main>
+<script>
+const site = location.origin;
+const $ = (id) => document.getElementById(id);
+
+async function api(body) {
+  const res = await fetch("/admin/api", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({ error: "请求失败" }));
+  if (!res.ok) throw new Error(data.error || "请求失败");
+  return data;
+}
+
+function share(user, title) {
+  $("result-title").textContent = title;
+  $("result-text").textContent =
+`Gist 英语精读
+网址：${site}
+用户名：${user.username}
+密码：${user.password}
+
+（可选）让 ChatGPT 每天自动导入文章用的连接地址，不要公开：
+${site}/connector/${user.importToken}/mcp`;
+  $("result").style.display = "block";
+  $("result").scrollIntoView({ behavior: "smooth" });
+}
+
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("result-text").textContent); $("copy").textContent = "已复制"; }
+  catch { $("copy").textContent = "请手动选择复制"; }
+  setTimeout(() => { $("copy").textContent = "复制"; }, 2000);
+};
+
+function render(users) {
+  const list = $("list");
+  list.innerHTML = "";
+  if (!users.length) { list.innerHTML = '<div class="empty">还没有朋友的账号。</div>'; return; }
+  for (const u of users) {
+    const row = document.createElement("div");
+    row.className = "user";
+    const info = document.createElement("div");
+    info.innerHTML = '<div class="name"></div><div class="meta"></div>';
+    info.querySelector(".name").textContent = u.username;
+    info.querySelector(".meta").textContent = `创建于 ${u.createdAt.slice(0, 10)}`;
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const reset = document.createElement("button");
+    reset.textContent = "重置密码";
+    reset.onclick = async () => {
+      if (!confirm(`给 ${u.username} 换一个新密码？旧密码和已登录的设备会立即失效。`)) return;
+      try { share(await api({ action: "reset", username: u.username }), "密码已重置"); } catch (e) { alert(e.message); }
+    };
+    const del = document.createElement("button");
+    del.className = "danger";
+    del.textContent = "删除";
+    del.onclick = async () => {
+      if (!confirm(`删除账号 ${u.username}？对方将无法登录，他的文章和单词也会一起永久删除，无法恢复。`)) return;
+      try { await api({ action: "delete", username: u.username }); load(); } catch (e) { alert(e.message); }
+    };
+    actions.append(reset, del);
+    row.append(info, actions);
+    list.append(row);
+  }
+}
+
+async function load() {
+  try { render((await api({ action: "list" })).users); }
+  catch (e) { $("list").innerHTML = ""; const d = document.createElement("div"); d.className = "error"; d.textContent = e.message; $("list").append(d); }
+}
+
+$("create").onsubmit = async (event) => {
+  event.preventDefault();
+  $("create-error").textContent = "";
+  try {
+    const user = await api({ action: "create", username: $("username").value.trim().toLowerCase() });
+    $("username").value = "";
+    share(user, "账号已创建");
+    load();
+  } catch (e) { $("create-error").textContent = e.message; }
+};
+
+load();
+</script>
+</body>
+</html>

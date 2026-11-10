@@ -1,0 +1,1 @@
+ALTER TABLE `saved_words` ADD `sort_order` integer DEFAULT 0 NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `ai_connections` ADD `thinking_mode` text DEFAULT 'disabled' NOT NULL;
