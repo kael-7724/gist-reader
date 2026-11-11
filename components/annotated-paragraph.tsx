@@ -33,9 +33,10 @@ function renderWords(text: string, saved: Set<string>, vocab: Set<string> | null
     if (start > cursor) result.push(text.slice(cursor, start));
     const word = match[0];
     const candidates = englishLemmaCandidates(word);
+    const isKaoyan = Boolean(vocab && candidates.some((candidate) => vocab.has(candidate)));
     if (candidates.some((candidate) => saved.has(candidate))) {
-      result.push(<strong key={`${prefix}-${start}`} className="saved-word"><em>{word}</em></strong>);
-    } else if (vocab && candidates.some((candidate) => vocab.has(candidate))) {
+      result.push(<strong key={`${prefix}-${start}`} className={isKaoyan ? "saved-word kaoyan-word" : "saved-word"}><em>{word}</em></strong>);
+    } else if (isKaoyan) {
       result.push(<span key={`${prefix}-${start}`} className="kaoyan-word">{word}</span>);
     } else {
       result.push(word);
@@ -51,7 +52,7 @@ function renderWithPhrases(text: string, saved: Set<string>, phrases: string[], 
   let cursor = 0;
   for (const match of findIntervals(text, phrases, true)) {
     if (match.start > cursor) output.push(...renderWords(text.slice(cursor, match.start), saved, vocab, `${prefix}-w${cursor}`));
-    output.push(<strong key={`${prefix}-p${match.start}`} className="saved-word saved-phrase" title="已收藏到单词本（词组）"><em>{text.slice(match.start, match.end)}</em></strong>);
+    output.push(<strong key={`${prefix}-p${match.start}`} className="saved-word saved-phrase" title="已收藏到单词本（词组）"><em>{renderWords(text.slice(match.start, match.end), new Set(), vocab, `${prefix}-in${match.start}`)}</em></strong>);
     cursor = match.end;
   }
   if (cursor < text.length) output.push(...renderWords(text.slice(cursor), saved, vocab, `${prefix}-w${cursor}`));

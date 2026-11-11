@@ -290,3 +290,4 @@ button{touch-action:manipulation}
 .library-header{transition:opacity .4s ease}
 .ww-active .library-header,.ww-active .article-dock{opacity:0;pointer-events:none}
 @media (max-width:640px){.library-actions{flex-direction:row;flex-wrap:wrap;align-items:center}.library-actions .search-box{flex:1 0 100%}}
+.saved-word.kaoyan-word,.saved-word .kaoyan-word{border-bottom:0;padding-bottom:0;text-decoration:underline dotted;text-decoration-thickness:2px;text-underline-offset:.22em;text-decoration-skip-ink:none}
