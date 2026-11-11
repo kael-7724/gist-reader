@@ -131,6 +131,11 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
   const busy = useRef(true);
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
+  const frozen = useRef(new Set<number>());
+  const blow = useRef<{ x: number; y: number; on: boolean; puff: number } | null>(null);
+  const motion = useRef(new Map<number, { vx: number; vy: number; w: number }>());
+  const windLoop = useRef(0);
+  const gustRef = useRef<HTMLDivElement | null>(null);
   const reduce = useRef(false);
   const ms = (value: number) => (reduce.current ? 1 : value);
 
@@ -304,6 +309,7 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     busy.current = true;
     setHint(false);
     el.style.zIndex = "9001";
+    frozen.current.add(id);
     setLifted({ id, zh: false });
     void animate(el, [{ transform: el.style.transform }, { transform: center() }], { duration: ms(560), easing: GLIDE });
     void turn(id, "front", 70).then(() => { busy.current = false; });
@@ -317,13 +323,14 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     setLifted(null);
     el.style.zIndex = String(++zTop.current);
     void turn(id, "back");
-    void animate(el, [{ transform: el.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(540), easing: GLIDE }).then(() => { busy.current = false; });
+    void animate(el, [{ transform: el.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(540), easing: GLIDE }).then(() => { busy.current = false; frozen.current.delete(id); });
   }, [turn]);
 
   const toPile = useCallback((id: number) => {
     const el = tokens.current.get(id);
     if (!el) return;
     busy.current = true;
+    frozen.current.add(id);
     setLifted(null);
     const pile = pilePoint();
     void animate(el, [
@@ -388,6 +395,93 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     spot.r = spot.r * 0.5 + rand(-6, 6);
     void animate(event.currentTarget, [{ transform: event.currentTarget.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(380), easing: "cubic-bezier(.34,1.4,.64,1)" });
   }
+
+  // Holding down on an empty part of the table blows a gust outward from that point.
+  function runWind() {
+    if (windLoop.current) return;
+    let last = performance.now();
+    const radius = stage.width < 640 ? 170 : 250;
+    const step = (now: number) => {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      const source = blow.current;
+      let moving = false;
+      words.forEach((word) => {
+        const id = word.id;
+        if (frozen.current.has(id) || drag.current?.id === id) return;
+        const el = tokens.current.get(id);
+        const spot = spots.current.get(id);
+        if (!el || !spot || !el.isConnected) return;
+        const m = motion.current.get(id) ?? { vx: 0, vy: 0, w: 0 };
+        if (source && (source.on || source.puff > 0)) {
+          const dx = spot.x - source.x;
+          const dy = spot.y - source.y;
+          const d = Math.max(1, Math.hypot(dx, dy));
+          if (d < radius) {
+            const falloff = (1 - d / radius) ** 2;
+            const force = (source.on ? 5200 : 0) * falloff + source.puff * falloff;
+            const nx = dx / d;
+            const ny = dy / d;
+            const swirl = ((id % 7) / 7 - 0.5) * 0.9;
+            m.vx += (nx - ny * swirl) * force * dt;
+            m.vy += (ny + nx * swirl) * force * dt;
+            if (!motion.current.has(id)) el.getAnimations().forEach((animation) => animation.cancel());
+          }
+        }
+        const decay = Math.exp(-3.4 * dt);
+        m.vx *= decay;
+        m.vy *= decay;
+        m.w += ((m.vx * 0.55 - m.vy * 0.35) * 0.3 - m.w * 3) * dt;
+        const speed = Math.hypot(m.vx, m.vy);
+        if (speed < 3 && Math.abs(m.w) < 3 && !motion.current.has(id)) return;
+        spot.x += m.vx * dt;
+        spot.y += m.vy * dt;
+        spot.r = ((spot.r + m.w * dt + 540) % 360) - 180;
+        const half = W0 * spot.s / 2;
+        if (spot.x < half) { spot.x = half; m.vx = Math.abs(m.vx) * 0.45; }
+        if (spot.x > stage.width - half) { spot.x = stage.width - half; m.vx = -Math.abs(m.vx) * 0.45; }
+        if (spot.y < 70) { spot.y = 70; m.vy = Math.abs(m.vy) * 0.45; }
+        if (spot.y > stage.height - 24) { spot.y = stage.height - 24; m.vy = -Math.abs(m.vy) * 0.45; }
+        el.style.transform = tf(spot.x, spot.y, spot.r, spot.s * (1 + Math.min(0.1, speed / 8000)));
+        if (speed > 3 || Math.abs(m.w) > 3) { moving = true; motion.current.set(id, m); }
+        else { motion.current.delete(id); el.style.transform = tf(spot.x, spot.y, spot.r, spot.s); }
+      });
+      if (source) source.puff = Math.max(0, source.puff - 90000 * dt);
+      if (moving || source?.on || (source?.puff ?? 0) > 0) windLoop.current = requestAnimationFrame(step);
+      else { windLoop.current = 0; motion.current.clear(); }
+    };
+    windLoop.current = requestAnimationFrame(step);
+  }
+
+  function placeGust(x: number, y: number) {
+    const el = gustRef.current;
+    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }
+
+  function onStageDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget || phase !== "play" || lifted) return;
+    const x = event.clientX - stage.left;
+    const y = event.clientY - stage.top;
+    blow.current = { x, y, on: true, puff: 14000 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    placeGust(x, y);
+    gustRef.current?.classList.add("is-on");
+    setHint(false);
+    runWind();
+  }
+  function onStageMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!blow.current?.on) return;
+    blow.current.x = event.clientX - stage.left;
+    blow.current.y = event.clientY - stage.top;
+    placeGust(blow.current.x, blow.current.y);
+  }
+  function onStageUp() {
+    if (!blow.current) return;
+    blow.current.on = false;
+    gustRef.current?.classList.remove("is-on");
+  }
+
+  useEffect(() => () => cancelAnimationFrame(windLoop.current), []);
 
   // Deal a fresh round out of the pile.
   useLayoutEffect(() => {
@@ -483,7 +577,8 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
   const allDone = phase === "play" && gone.size === words.length;
 
   return createPortal(
-    <div className="ww-stage" style={{ left: stage.left, top: stage.top, width: stage.width, height: stage.height }} role="dialog" aria-modal="true" aria-label="翻卡">
+    <div className="ww-stage" style={{ left: stage.left, top: stage.top, width: stage.width, height: stage.height }} role="dialog" aria-modal="true" aria-label="翻卡" onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={onStageUp} onPointerCancel={onStageUp}>
+      <div ref={gustRef} className="ww-gust" aria-hidden="true"><span /><span /><span /></div>
       {words.map((word, index) => (phase !== "rebuild" && phase !== "deal" && gone.has(word.id)) ? null : (
         <button
           key={word.id}
