@@ -19,12 +19,14 @@ export function DailyPicks({ onOpen }: { onOpen: (article: PickedArticle, added:
   const [date, setDate] = useState<string | null>(null);
   const [picks, setPicks] = useState<Pick[] | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [canAdd, setCanAdd] = useState(false);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/picks").catch(() => null);
     if (!response?.ok) return;
-    const data = await response.json() as { date: string | null; picks: Pick[] };
+    const data = await response.json() as { date: string | null; picks: Pick[]; canAdd?: boolean };
     setDate(data.date);
+    setCanAdd(Boolean(data.canAdd));
     setPicks(data.picks);
   }, []);
 
@@ -77,6 +79,7 @@ export function DailyPicks({ onOpen }: { onOpen: (article: PickedArticle, added:
               </li>
             );
           })}</ul>}
+        {canAdd && <a href="/clip" target="_blank" rel="noreferrer" className="pick-clip-link">从外刊网页一键导入</a>}
       </DialogContent>
     </Dialog>
   );

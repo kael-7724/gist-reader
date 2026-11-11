@@ -1,6 +1,5 @@
-import { z } from "zod";
 import { database, message } from "@/lib/site-data";
-import { PICKS_PER_DAY, POOL_OWNER, taipeiToday } from "@/lib/daily-picks";
+import { addPick, articleInput, cleanSource, PICKS_PER_DAY, POOL_OWNER, taipeiToday } from "@/lib/daily-picks";
 
 const toolName = "import_daily_article";
 const fields = {
@@ -11,15 +10,6 @@ const fields = {
   publishedDate: { type: "string", description: "The article's original publication date, YYYY-MM-DD (not today's date)." },
   sourceUrl: { type: "string", description: "Canonical HTTPS URL of the article page, without tracking parameters." },
 };
-const articleInput = z.object({
-  title: z.string().trim().min(1).max(180),
-  shortTitle: z.string().trim().refine((value) => { const length = [...value.replace(/\s/g, "")].length; return length >= 2 && length <= 5; }, "shortTitle must be 2-5 characters, e.g. 粉色噪音"),
-  content: z.string().trim().min(1).max(20000),
-  publisher: z.string().trim().min(1).max(120).regex(/^[^\r\n]+$/),
-  publishedDate: z.string().date(),
-  sourceUrl: z.string().trim().max(2048).url().refine((url) => url.startsWith("https://")),
-}).strict();
-
 type RpcRequest = { id?: string | number | null; method?: string; params?: { name?: string; arguments?: unknown } };
 type ArticleReceipt = { id: number; title: string };
 
@@ -27,44 +17,13 @@ function toolResult(result: object, isError = false) {
   return { content: [{ type: "text", text: JSON.stringify(result) }], isError };
 }
 
-function cleanSource(sourceUrl: string) {
-  const url = new URL(sourceUrl);
-  if (url.username || url.password) return null;
-  url.hash = "";
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(utm_|fbclid$|gclid$|mc_|cmp$|CMP$|ref$|src$)/.test(key)) url.searchParams.delete(key);
-  }
-  return url;
-}
-
-async function addPick(args: unknown) {
-  const article = articleInput.parse(args);
-  const url = cleanSource(article.sourceUrl);
-  if (!url) return toolResult({ error: "Use an article URL without credentials." }, true);
-  const today = taipeiToday();
-  const sourceMarker = `\n${url.href}`;
-  const content = `${article.content}\n\n${article.publisher} | ${article.publishedDate}${sourceMarker}`;
-  const db = database();
-  const duplicate = "lower(title) = lower(?) OR substr(content, -length(?)) = ?";
-  const inserted = await db.prepare(`
-    INSERT INTO daily_picks (pick_date, title, short_title, content)
-    SELECT ?, ?, ?, ?
-    WHERE (SELECT count(*) FROM daily_picks WHERE pick_date = ?) < ${PICKS_PER_DAY}
-      AND NOT EXISTS (SELECT 1 FROM daily_picks WHERE ${duplicate})
-    RETURNING id, title
-  `).bind(today, article.title, article.shortTitle.replace(/\s/g, ""), content, today, article.title, sourceMarker, sourceMarker).first<ArticleReceipt>();
-  const count = await db.prepare("SELECT count(*) AS n FROM daily_picks WHERE pick_date = ?").bind(today).first<{ n: number }>();
-  const remaining = Math.max(0, PICKS_PER_DAY - (count?.n ?? 0));
-  if (inserted) return toolResult({ status: "added", article: inserted, remainingToday: remaining });
-  const existing = await db.prepare(`SELECT id, title FROM daily_picks WHERE ${duplicate} LIMIT 1`).bind(article.title, sourceMarker, sourceMarker).first<ArticleReceipt>();
-  if (existing) return toolResult({ status: "duplicate_article", article: existing, remainingToday: remaining });
-  return toolResult({ status: "list_full_today", remainingToday: 0 });
-}
-
 async function importArticle(request: Request, args: unknown) {
   const owner = request.headers.get("oai-authenticated-user-id");
   if (!owner) return toolResult({ error: "Sign in to Gist before importing an article." }, true);
-  if (owner === POOL_OWNER) return addPick(args);
+  if (owner === POOL_OWNER) {
+    const result = await addPick(articleInput.parse(args));
+    return toolResult(result, "error" in result);
+  }
 
   const article = articleInput.parse(args);
   const url = cleanSource(article.sourceUrl);
