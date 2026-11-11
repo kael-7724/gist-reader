@@ -4,7 +4,16 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { createPortal } from "react-dom";
 import { RotateCcw, X } from "lucide-react";
 
-export type WallWord = { id: number; text: string; translation: string };
+export type WallWord = { id: number; text: string; translation: string; reviewedAt?: string | null };
+
+const DECK_SIZE = 30;
+
+// A round is at most 30 cards: words never turned over come first, then the ones turned over longest ago.
+function pickDeck(pool: WallWord[], skip: Set<number>) {
+  const fresh = pool.filter((word) => !skip.has(word.id));
+  const source = fresh.length ? fresh : pool;
+  return [...source].sort((a, b) => (a.reviewedAt ?? "").localeCompare(b.reviewedAt ?? "") || ((a.id * 2654435761) % 997) - ((b.id * 2654435761) % 997)).slice(0, DECK_SIZE);
+}
 
 type Phase = "flip" | "fall" | "play" | "deal" | "rebuild";
 type Box = { left: number; top: number; width: number; height: number };
@@ -113,7 +122,10 @@ function tweenAll(items: { el: HTMLElement; from: Pose; to: Pose; delay: number;
   });
 }
 
-export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () => void }) {
+export function WordWall({ pool, onReview, onClose }: { pool: WallWord[]; onReview: (id: number) => void; onClose: () => void }) {
+  const [deck, setDeck] = useState(() => pickDeck(pool, new Set()));
+  const words = deck;
+  const reviewed = useRef(new Set<number>());
   const [stage] = useState(measureStage);
   const [walls] = useState(() => { const box = measureStage(); return new Map(words.map((word) => [word.id, wallPose(word.id, box)] as const)); });
   const [phase, setPhase] = useState<Phase>("flip");
@@ -166,6 +178,10 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
       else applyPose(el, tablePose(rand(0, stage.width), -200, 0, 0.4, 0));
     });
     let cancelled = false;
+    const inDeck = new Set(words.map((word) => word.id));
+    document.querySelectorAll<HTMLElement>(".word-grid [data-word-card-id]").forEach((card) => {
+      if (!inDeck.has(Number(card.dataset.wordCardId))) void animate(card, [{ opacity: 1 }, { opacity: 0 }], { duration: ms(320), easing: "ease" }, false);
+    });
     const jobs = words.map((word) => {
       const wall = walls.get(word.id);
       if (!wall) return Promise.resolve();
@@ -184,7 +200,7 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
 
   useEffect(() => () => {
     document.body.classList.remove("ww-active");
-    document.querySelectorAll<HTMLElement>(".word-grid [data-word-card-id]").forEach((card) => { card.getAnimations().forEach((animation) => animation.cancel()); setInstant(card, ""); });
+    document.querySelectorAll<HTMLElement>(".word-grid [data-word-card-id]").forEach((card) => { card.getAnimations().forEach((animation) => animation.cancel()); card.style.opacity = ""; setInstant(card, ""); });
   }, []);
 
   // Glide cards from their current pose to their spot on the table.
@@ -353,6 +369,8 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     if (lifted.id !== id) return;
     if (!lifted.zh) { setLifted({ id, zh: true }); return; }
     setPassed((n) => n + 1);
+    reviewed.current.add(id);
+    onReview(id);
     toPile(id);
   }
 
@@ -496,6 +514,7 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function reshuffle() {
+    setDeck(pickDeck(pool, reviewed.current));
     busy.current = true;
     setGone(new Set());
     setPassed(0);
@@ -516,6 +535,10 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     const targets = new Map(words.map((word) => [word.id, wallPose(word.id, stage)] as const));
     targets.forEach((wall, id) => { const card = wall ? gridCard(id) : null; if (card) setInstant(card, `${P}-90deg)`); });
     document.body.classList.remove("ww-active");
+    const inDeck = new Set(words.map((word) => word.id));
+    document.querySelectorAll<HTMLElement>(".word-grid [data-word-card-id]").forEach((card) => {
+      if (!inDeck.has(Number(card.dataset.wordCardId))) void animate(card, [{ opacity: 0 }, { opacity: 1 }], { duration: ms(480), delay: ms(200), easing: "ease" }, false);
+    });
     const items = words.flatMap((word) => {
       const el = tokens.current.get(word.id);
       const spot = spots.current.get(word.id);
@@ -602,7 +625,7 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
         <div className="ww-done">
           <h2>全部过关</h2>
           <div>
-            <button type="button" className="ww-chip" onClick={reshuffle}><RotateCcw className="size-4" />再来一次</button>
+            <button type="button" className="ww-chip" onClick={reshuffle}><RotateCcw className="size-4" />{pool.length > words.length ? "下一组" : "再来一次"}</button>
             <button type="button" className="ww-chip is-primary" onClick={exit}>收起</button>
           </div>
         </div>
