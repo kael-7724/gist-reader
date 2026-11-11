@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { englishLemmaCandidates } from "@/lib/english-lemma";
 
 type Interval = { start: number; end: number };
@@ -67,7 +68,7 @@ function isSubheading(text: string) {
   return !/[.,;:!?…”"’)]$/.test(line);
 }
 
-export function AnnotatedParagraph({ text, savedWords, savedPhrases, savedSentences, vocab }: { text: string; savedWords: Set<string>; savedPhrases: string[]; savedSentences: string[]; vocab: Set<string> | null }) {
+export const AnnotatedParagraph = memo(function AnnotatedParagraph({ text, savedWords, savedPhrases, savedSentences, vocab }: { text: string; savedWords: Set<string>; savedPhrases: string[]; savedSentences: string[]; vocab: Set<string> | null }) {
   const output: React.ReactNode[] = [];
   let cursor = 0;
   for (const match of findIntervals(text, savedSentences, false)) {
@@ -77,4 +78,4 @@ export function AnnotatedParagraph({ text, savedWords, savedPhrases, savedSenten
   }
   if (cursor < text.length) output.push(...renderWithPhrases(text.slice(cursor), savedWords, savedPhrases, vocab, `tail-${cursor}`));
   return <p className={isSubheading(text) ? "article-subheading" : undefined}>{output}</p>;
-}
+});

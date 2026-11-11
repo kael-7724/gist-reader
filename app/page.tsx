@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Moon, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
@@ -300,6 +300,36 @@ export default function Home() {
     setTheme(next);
     window.setTimeout(() => root.classList.remove("theme-fade"), 420);
   }
+
+  // Stable handlers for the word cards, so a hover or a toggle only re-renders the cards that changed.
+  const wordActionsRef = useRef<WordActions | null>(null);
+  useLayoutEffect(() => {
+    wordActionsRef.current = {
+      hoverStart: (id) => { if (!translationsHidden && (pinnedWordId === null || pinnedWordId === id)) setExpandedWordId(id); },
+      hoverEnd: (id) => { if (pinnedWordId !== id) setExpandedWordId((current) => current === id ? null : current); },
+      toggle: (id) => {
+        if (translationsHidden) { setRevealedWordIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]); return; }
+        const next = pinnedWordId === id ? null : id;
+        setPinnedWordId(next);
+        setExpandedWordId(next);
+      },
+      moveFirst: (id) => void moveWordFirst(id),
+      dismiss: () => { setPinnedWordId(null); setExpandedWordId(null); },
+      enrich: (id, again) => void enrichWord(id, again),
+      sync: (id) => void syncWords([id]),
+      remove: (id) => void removeItem("word", id),
+    };
+  });
+  const wordActions = useMemo<WordActions>(() => ({
+    hoverStart: (id) => wordActionsRef.current?.hoverStart(id),
+    hoverEnd: (id) => wordActionsRef.current?.hoverEnd(id),
+    toggle: (id) => wordActionsRef.current?.toggle(id),
+    moveFirst: (id) => wordActionsRef.current?.moveFirst(id),
+    dismiss: () => wordActionsRef.current?.dismiss(),
+    enrich: (id, again) => wordActionsRef.current?.enrich(id, again),
+    sync: (id) => wordActionsRef.current?.sync(id),
+    remove: (id) => wordActionsRef.current?.remove(id),
+  }), []);
 
   function toggleMarkMode() {
     const next = !markMode;
@@ -800,13 +830,7 @@ export default function Home() {
               )}
             />
             {filteredWords.length ? <div ref={setWordGridElement} className={`word-grid ${expandedColumn >= 0 ? "has-expanded" : ""} ${translationsHidden ? "translations-hidden" : ""}`} style={{ gridTemplateColumns: wordColumnWidths }}>
-            {wordColumns.map((column, columnIndex) => <div className="word-column" key={columnIndex}>{column.map((word) => selectedWordIds === null ? <SavedWordCard key={word.id} word={word} open={expandedWordId === word.id} translationVisible={!translationsHidden || revealedWordIds.includes(word.id)} aiConnected={deepseekConnected} enriching={enrichingIds.includes(word.id)} syncing={syncingIds.includes(word.id)}
-                onHoverStart={() => { if (!translationsHidden && (pinnedWordId === null || pinnedWordId === word.id)) setExpandedWordId(word.id); }}
-                onHoverEnd={() => { if (pinnedWordId !== word.id) setExpandedWordId((current) => current === word.id ? null : current); }}
-                onToggle={() => { if (translationsHidden) { setRevealedWordIds((ids) => ids.includes(word.id) ? ids.filter((id) => id !== word.id) : [...ids, word.id]); return; } const next = pinnedWordId === word.id ? null : word.id; setPinnedWordId(next); setExpandedWordId(next); }}
-                onMoveFirst={() => void moveWordFirst(word.id)}
-                onDismiss={() => { setPinnedWordId(null); setExpandedWordId(null); }}
-                onEnrich={() => void enrichWord(word.id, Boolean(word.similarJson))} onSync={() => void syncWords([word.id])} onDelete={() => void removeItem("word", word.id)} /> : (
+            {wordColumns.map((column, columnIndex) => <div className="word-column" key={columnIndex}>{column.map((word) => selectedWordIds === null ? <SavedWordCard key={word.id} word={word} open={expandedWordId === word.id} translationVisible={!translationsHidden || revealedWordIds.includes(word.id)} aiConnected={deepseekConnected} enriching={enrichingIds.includes(word.id)} syncing={syncingIds.includes(word.id)} actions={wordActions} /> : (
                   <label key={word.id} className="word-card word-row">
                     <span className="word-row-trigger word-selection">
                       <input type="checkbox" aria-label={`选择 ${word.text}`} checked={selectedWordIds.has(word.id)} disabled={deletingWords} onChange={() => toggleWordSelection(word.id)} />
@@ -871,7 +895,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
+        <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
     : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
           <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
@@ -899,25 +923,32 @@ function EmptyLibrary({ icon, text, setTab }: { icon: React.ReactNode; text: str
   return <div className="empty-library"><span>{icon}</span><p>{text}</p><Button variant="outline" className="rounded-xl" onClick={() => setTab("read")}><BookOpen className="size-4" />去阅读</Button></div>;
 }
 
-function SavedWordCard({ word, open, translationVisible, aiConnected, enriching, syncing, onHoverStart, onHoverEnd, onToggle, onMoveFirst, onDismiss, onEnrich, onSync, onDelete }: {
-  word: SavedWord; open: boolean; translationVisible: boolean; aiConnected: boolean; enriching: boolean; syncing: boolean;
-  onHoverStart: () => void; onHoverEnd: () => void; onToggle: () => void; onMoveFirst: () => void; onDismiss: () => void;
-  onEnrich: () => void; onSync: () => void; onDelete: () => void;
+type WordActions = {
+  hoverStart: (id: number) => void; hoverEnd: (id: number) => void; toggle: (id: number) => void; moveFirst: (id: number) => void;
+  dismiss: () => void; enrich: (id: number, again: boolean) => void; sync: (id: number) => void; remove: (id: number) => void;
+};
+
+const SavedWordCard = memo(function SavedWordCard({ word, open, translationVisible, aiConnected, enriching, syncing, actions }: {
+  word: SavedWord; open: boolean; translationVisible: boolean; aiConnected: boolean; enriching: boolean; syncing: boolean; actions: WordActions;
 }) {
-  return <section className={`word-card word-row ${open ? "expanded" : ""}`} data-word-card-id={word.id}
-    onMouseEnter={onHoverStart} onMouseLeave={onHoverEnd}
-    onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onDismiss(); }}
-    onKeyDown={(event) => { if (event.key === "Escape") onDismiss(); }}>
-    <button type="button" className="word-row-trigger" onClick={(event) => { if (event.detail > 1) return; onToggle(); }} onDoubleClick={onMoveFirst} aria-expanded={open} aria-label={`${word.text}${translationVisible ? `，${word.translation}` : "，点击显示释义"}；双击置顶`}>
+  // The expandable part is only built once a card has been opened.
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
+  const id = word.id;
+  return <section className={`word-card word-row ${open ? "expanded" : ""}`} data-word-card-id={id}
+    onMouseEnter={() => actions.hoverStart(id)} onMouseLeave={() => actions.hoverEnd(id)}
+    onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) actions.dismiss(); }}
+    onKeyDown={(event) => { if (event.key === "Escape") actions.dismiss(); }}>
+    <button type="button" className="word-row-trigger" onClick={(event) => { if (event.detail > 1) return; actions.toggle(id); }} onDoubleClick={() => actions.moveFirst(id)} aria-expanded={open} aria-label={`${word.text}${translationVisible ? `，${word.translation}` : "，点击显示释义"}；双击置顶`}>
       <span className="word-row-text">{word.text}</span>{translationVisible && <span className="word-row-translation">{word.translation}</span>}
     </button>
-    <div className="word-row-reveal" aria-hidden={!open}><div className="word-row-reveal-inner">
+    <div className="word-row-reveal" aria-hidden={!open}><div className="word-row-reveal-inner">{opened && <>
       <div className="word-row-related">{word.similarJson && word.lookalikeJson ? <><RelatedWords title="近义" raw={word.similarJson} /><RelatedWords title="形近" raw={word.lookalikeJson} /></> : <div className="word-popover-pending">{enriching ? <Loader2 className="size-4 animate-spin" /> : null}</div>}</div>
       {word.syncStatus === "failed" && word.syncError && <p className="word-popover-error">同步失败：{word.syncError}</p>}
-      <div className="word-popover-actions"><Button variant="ghost" size="icon" disabled={enriching || !aiConnected} tabIndex={open ? 0 : -1} onClick={onEnrich} aria-label={word.similarJson ? "重新生成联想" : "生成联想"} title={word.similarJson ? "重新生成联想" : "生成联想"}>{enriching ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>{!word.text.includes(" ") && <Button variant="ghost" size="icon" disabled={syncing || word.syncStatus === "synced"} tabIndex={open ? 0 : -1} onClick={onSync} aria-label={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"} title={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"}>{syncing ? <Loader2 className="size-4 animate-spin" /> : word.syncStatus === "synced" ? <CloudCheck className="size-4" /> : <Cloud className="size-4" />}</Button>}<Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={() => speak(word.text)} aria-label={`朗读 ${word.text}`}><Volume2 className="size-4" /></Button><Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={onDelete} aria-label={`删除 ${word.text}`}><Trash2 className="size-4" /></Button></div>
-    </div></div>
+      <div className="word-popover-actions"><Button variant="ghost" size="icon" disabled={enriching || !aiConnected} tabIndex={open ? 0 : -1} onClick={() => actions.enrich(id, Boolean(word.similarJson))} aria-label={word.similarJson ? "重新生成联想" : "生成联想"} title={word.similarJson ? "重新生成联想" : "生成联想"}>{enriching ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>{!word.text.includes(" ") && <Button variant="ghost" size="icon" disabled={syncing || word.syncStatus === "synced"} tabIndex={open ? 0 : -1} onClick={() => actions.sync(id)} aria-label={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"} title={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"}>{syncing ? <Loader2 className="size-4 animate-spin" /> : word.syncStatus === "synced" ? <CloudCheck className="size-4" /> : <Cloud className="size-4" />}</Button>}<Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={() => speak(word.text)} aria-label={`朗读 ${word.text}`}><Volume2 className="size-4" /></Button><Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={() => actions.remove(id)} aria-label={`删除 ${word.text}`}><Trash2 className="size-4" /></Button></div>
+    </>}</div></div>
   </section>;
-}
+});
 
 function RelatedWords({ title, raw }: { title: string; raw: string }) {
   let entries: RelatedWord[] = [];
