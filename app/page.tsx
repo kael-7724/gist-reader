@@ -8,6 +8,7 @@ import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
 import { KaoyanCoverage } from "@/components/kaoyan-coverage";
 import { TranslationSheet } from "@/components/translation-sheet";
 import { WordWall } from "@/components/word-wall";
+import { AccountDialog } from "@/components/account-dialog";
 import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -892,6 +893,7 @@ export default function Home() {
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
             <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
+            <AccountDialog />
           </div>
         </header>
 

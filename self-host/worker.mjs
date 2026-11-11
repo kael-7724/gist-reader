@@ -56,8 +56,17 @@ async function findUser(env, username) {
     .bind(username).first();
 }
 
-function adminAccount(env) {
-  return { username: adminName(env), ownerId: adminOwnerId, isAdmin: true, secret: adminPassword(env) };
+// Once the owner changes their password on the site, it is kept (salted and hashed) in the database
+// and replaces ADMIN_PASSWORD. Until then ADMIN_PASSWORD is the password.
+async function adminCredential(env) {
+  const row = await env.DB.prepare("SELECT value FROM self_host_settings WHERE key = 'admin_password'").first().catch(() => null);
+  const [salt, hash] = typeof row?.value === "string" ? row.value.split(":") : [];
+  return salt && hash ? { salt, hash } : null;
+}
+
+async function adminAccount(env) {
+  const credential = await adminCredential(env);
+  return { username: adminName(env), ownerId: adminOwnerId, isAdmin: true, secret: credential ? credential.hash : adminPassword(env) };
 }
 
 function userAccount(row) {
@@ -69,7 +78,7 @@ async function accountFromSession(request, env) {
   if (!value) return null;
   const match = /^v2\.([a-z0-9_-]{2,32})\.[A-Za-z0-9_-]+$/.exec(value);
   if (!match) return null;
-  const account = match[1] === adminName(env) ? adminAccount(env) : await findUser(env, match[1]).then((row) => row && userAccount(row));
+  const account = match[1] === adminName(env) ? await adminAccount(env) : await findUser(env, match[1]).then((row) => row && userAccount(row));
   if (!account) return null;
   return safeEqual(Buffer.from(value), Buffer.from(sessionToken(env, account.username, account.secret))) ? account : null;
 }
@@ -88,7 +97,11 @@ async function accountFromPassword(env, rawUsername, password) {
   const username = String(rawUsername ?? "").trim().toLowerCase();
   if (!username || typeof password !== "string" || !password) return null;
   if (username === adminName(env)) {
-    return safeEqual(Buffer.from(password), Buffer.from(adminPassword(env))) ? adminAccount(env) : null;
+    const credential = await adminCredential(env);
+    const valid = credential
+      ? safeEqual(Buffer.from(hashPassword(credential.salt, password)), Buffer.from(credential.hash))
+      : safeEqual(Buffer.from(password), Buffer.from(adminPassword(env)));
+    return valid ? adminAccount(env) : null;
   }
   const row = await findUser(env, username);
   if (!row) return null;
@@ -236,6 +249,31 @@ async function handleAdminApi(request, env) {
   return jsonResponse({ error: "未知操作" }, 400);
 }
 
+async function handlePasswordChange(request, env, account, url) {
+  if (await tooManyFailures(env, request)) return jsonResponse({ error: "尝试次数太多，请 15 分钟后再试" }, 429);
+  const body = await request.json().catch(() => null);
+  const current = typeof body?.current === "string" ? body.current : "";
+  const next = typeof body?.next === "string" ? body.next : "";
+  if (!await accountFromPassword(env, account.username, current)) {
+    await recordFailure(env, request);
+    return jsonResponse({ error: "当前密码不正确" }, 403);
+  }
+  if (next.length < 8 || next.length > 128) return jsonResponse({ error: "新密码至少 8 位" }, 400);
+  if (next === current) return jsonResponse({ error: "新密码和当前密码一样" }, 400);
+  const salt = randomBytes(16).toString("base64url");
+  const hash = hashPassword(salt, next);
+  if (account.isAdmin) {
+    await env.DB.prepare("INSERT INTO self_host_settings (key, value) VALUES ('admin_password', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(`${salt}:${hash}`).run();
+  } else {
+    await env.DB.prepare("UPDATE self_host_users SET password_salt = ?, password_hash = ? WHERE username = ?").bind(salt, hash, account.username).run();
+  }
+  await clearFailures(env, request);
+  // Other devices are signed out (their sessions were signed with the old password); this one stays signed in.
+  const response = jsonResponse({ ok: true });
+  response.headers.append("Set-Cookie", sessionCookieValue(env, { ...account, secret: hash }, url));
+  return response;
+}
+
 function sessionCookieValue(env, account, url) {
   const secure = url.protocol === "https:" ? "; Secure" : "";
   return `${sessionCookie}=${sessionToken(env, account.username, account.secret)}; Path=/; Max-Age=${sessionMaxAge}; HttpOnly; SameSite=Lax${secure}`;
@@ -344,6 +382,13 @@ export default {
     }
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && isCrossSiteWrite(request, url)) {
       return privateResponse("Cross-origin writes are not allowed.", 403);
+    }
+
+    if (url.pathname === "/account" && request.method === "GET") {
+      return withSession(jsonResponse({ username: account.username, isAdmin: account.isAdmin }), env, account, url, viaBasic);
+    }
+    if (url.pathname === "/account/password" && request.method === "POST") {
+      return handlePasswordChange(request, env, account, url);
     }
 
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) {
