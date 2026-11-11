@@ -21,7 +21,9 @@ function readClip(): Clip | null {
     const data = JSON.parse(decodeURIComponent(location.hash.slice(1))) as Partial<Clip>;
     history.replaceState(null, "", location.pathname);
     if (!data.title || !data.content) return null;
-    return { title: String(data.title), publisher: String(data.publisher ?? ""), publishedDate: String(data.publishedDate ?? ""), sourceUrl: String(data.sourceUrl ?? ""), content: String(data.content) };
+    // Older bookmarks read a drop cap as its own word ("T he first…"); A and I are real one-letter words, so they stay.
+    const content = String(data.content).replace(/^([B-HJ-Z]) ([a-z])/, "$1$2");
+    return { title: String(data.title), publisher: String(data.publisher ?? ""), publishedDate: String(data.publishedDate ?? ""), sourceUrl: String(data.sourceUrl ?? ""), content };
   } catch {
     return null;
   }

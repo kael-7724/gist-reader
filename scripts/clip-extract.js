@@ -54,7 +54,10 @@ function gistExtract() {
       if (skipped(element, root, true)) continue;
       if (element.tagName !== "BLOCKQUOTE" && element.parentElement?.closest("blockquote")) continue;
       if (element.tagName === "BLOCKQUOTE" && element.querySelector("p")) continue;
-      const text = clean(element.innerText);
+      let text = clean(element.innerText);
+      // A drop cap is a separate element, so innerText reads "T he first…".
+      const lead = element.firstElementChild;
+      if (lead && element.firstChild === lead && /^\S{1,2}$/.test(lead.textContent.trim()) && text.startsWith(lead.textContent.trim() + " ")) text = lead.textContent.trim() + text.slice(lead.textContent.trim().length + 1);
       if (!text) continue;
       if (/^H[23]$/.test(element.tagName)) {
         if (/^(downloads?|references|related( stories| content)?|more (from|on|stories).*|read more|you might also like|about the authors?|credits?)$/i.test(text)) break;
