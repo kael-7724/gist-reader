@@ -264,7 +264,7 @@ button{touch-action:manipulation}
 .ww-token:focus-visible{outline:none}
 .ww-token:focus-visible .ww-face{box-shadow:0 0 0 3px var(--ring)}
 .ww-face{position:absolute;left:0;right:0;top:calc((180px - var(--fh,180px)) / 2);height:var(--fh,180px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 24px;box-sizing:border-box;border-radius:var(--rad,22px);overflow:hidden}
-.ww-back{background:#1a1a1a;border:var(--edge,1px) solid #333;transform:perspective(720px) rotateY(0deg)}
+.ww-back{background:#f3f3f0;box-shadow:0 0 0 .5px rgb(0 0 0/.12),0 4px 16px rgb(0 0 0/.5);transform:perspective(720px) rotateY(0deg)}
 .ww-front{background:#f3f3f0;color:#0b0b0b;transform:perspective(720px) rotateY(-90deg)}
 .ww-en{font-family:Georgia,"Times New Roman",serif;font-size:34px;font-weight:700;line-height:1.15;text-align:center;overflow-wrap:anywhere}
 .ww-zh{display:block;max-height:0;opacity:0;overflow:hidden;font-size:16px;line-height:1.55;color:#3a3a3a;text-align:center;white-space:pre-line;transform:translateY(6px);transition:max-height .5s cubic-bezier(.22,1,.36,1),opacity .35s ease .08s,transform .45s cubic-bezier(.22,1,.36,1) .05s,margin .5s cubic-bezier(.22,1,.36,1)}
