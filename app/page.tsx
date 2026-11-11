@@ -867,7 +867,7 @@ export default function Home() {
                 <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="粘贴正文" className="min-h-56 rounded-xl leading-7" />
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
-            <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "白天模式" : "黑夜模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</span></Button>
+            <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
           </div>
         </header>
 
