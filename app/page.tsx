@@ -766,7 +766,7 @@ export default function Home() {
               count={bookItems.length}
               action={selectedWordIds === null ? (
                 <>
-                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.length} onClick={() => setWallOpen(true)} aria-label="翻卡" title="翻卡"><Shuffle className="size-4" /></Button>
+                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.some((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate)))} onClick={() => setWallOpen(true)} aria-label="翻卡（考研词）" title="翻卡（考研词）"><Shuffle className="size-4" /></Button>
                     <Button variant="outline" size="icon" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }} aria-label={translationsHidden ? "显示释义" : "隐藏释义"} title={translationsHidden ? "显示释义" : "隐藏释义"}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</Button>
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()} aria-label="生成联想" title="生成联想">{enrichingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>
                     {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))} aria-label="同步墨墨" title="同步墨墨">{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}</Button>}
@@ -824,7 +824,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <Toaster position="top-center" theme={theme} />
-      {wallOpen && <WordWall pool={filteredWords.map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
+      {wallOpen && <WordWall pool={filteredWords.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate))).map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">
           <TabsList className="reader-tabs" aria-label="页面导航">
