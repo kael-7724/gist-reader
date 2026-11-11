@@ -200,95 +200,95 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     return tweenAll(items);
   }, [words]);
 
-  // 2. Wind: gusts sweep in from several directions in turn and blow the face-down cards about,
-  //    then the air calms and each card drifts to rest on the table.
+  // 2. One strong gust from a random direction sweeps across the table. Each card is caught as the
+  //    front reaches it, slides downwind (some far, some barely), turns a little and comes to rest.
   useEffect(() => {
     if (phase !== "fall") return;
-    const placed = scatter(words.length, stage);
-    const s = placed[0]?.s ?? 0.4;
+    const s = scatter(1, stage)[0]?.s ?? 0.4;
     const table = tablePose(0, 0, 0, s);
-    const base = rand(0, Math.PI * 2);
-    const gusts = [0, 1, 2, 3].map((i) => ({
-      angle: base + i * (Math.PI / 2) + rand(-0.5, 0.5),
-      start: i * 230 + rand(0, 60),
-      length: rand(520, 680),
-      strength: rand(2600, 3400),
-    }));
+    const angle = rand(0, Math.PI * 2);
+    const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+    const perp = { x: -dir.y, y: dir.x };
     const span = Math.hypot(stage.width, stage.height);
-    const bodies = words.map((word, i) => {
+    const half = { w: W0 * s / 2 + 8, h: H0 * s / 2 + 8 };
+    const box = { x0: half.w, x1: stage.width - half.w, y0: 64 + half.h, y1: stage.height - half.h };
+    const centre = { x: stage.width / 2, y: stage.height / 2 };
+    const proj = (x: number, y: number) => (x - centre.x) * dir.x + (y - centre.y) * dir.y;
+    const front0 = -span / 2;
+    const frontSpeed = 1500;
+    // How far a card at (x, y) can travel along (dx, dy) before leaving the table.
+    const room = (x: number, y: number, dx: number, dy: number) => {
+      let t = Infinity;
+      if (dx > 1e-6) t = Math.min(t, (box.x1 - x) / dx); else if (dx < -1e-6) t = Math.min(t, (box.x0 - x) / dx);
+      if (dy > 1e-6) t = Math.min(t, (box.y1 - y) / dy); else if (dy < -1e-6) t = Math.min(t, (box.y0 - y) / dy);
+      return Math.max(0, t);
+    };
+    const bodies = words.map((word) => {
       const wall = walls.get(word.id);
       const el = tokens.current.get(word.id);
       if (el) el.style.zIndex = String(1 + Math.floor(Math.random() * words.length));
-      let start = wall;
-      if (!start) {
-        const g = gusts[i % gusts.length];
-        const edge = span * 0.55;
-        start = tablePose(stage.width / 2 - Math.cos(g.angle) * edge + rand(-120, 120), stage.height / 2 - Math.sin(g.angle) * edge + rand(-120, 120), rand(-40, 40), s, 1);
+      let start: Pose;
+      let hit: number;
+      if (wall) {
+        start = wall;
+        hit = (proj(wall.x, wall.y) - front0) / frontSpeed * 1000 + rand(0, 90);
+      } else {
+        // Cards that were off screen are carried in from the upwind side.
+        start = tablePose(centre.x - dir.x * span * 0.62 + perp.x * rand(-0.45, 0.45) * span, centre.y - dir.y * span * 0.62 + perp.y * rand(-0.45, 0.45) * span, rand(-20, 20), s);
+        hit = rand(0, 380);
       }
+      const sx = clamp(start.x, box.x0, box.x1);
+      const sy = clamp(start.y, box.y0, box.y1);
+      const entry = wall ? 0 : Math.hypot(sx - start.x, sy - start.y);
+      const want = entry + span * 0.62 * Math.random() ** 1.5 + 24;
+      const sideways = rand(-0.22, 0.22) * want;
+      const along = Math.min(want, wall ? room(start.x, start.y, dir.x, dir.y) : entry + room(sx, sy, dir.x, dir.y) * Math.random());
+      const ex = start.x + dir.x * along;
+      const ey = start.y + dir.y * along;
+      const side = clamp(sideways, -room(ex, ey, -perp.x, -perp.y), room(ex, ey, perp.x, perp.y));
+      const end = { x: clamp(ex + perp.x * side, box.x0, box.x1), y: clamp(ey + perp.y * side, box.y0, box.y1) };
+      const turnBy = (Math.random() < 0.5 ? -1 : 1) * clamp(Math.hypot(end.x - start.x, end.y - start.y) / span * rand(40, 110), 4, 48);
       return {
-        id: word.id, el, spot: placed[i], start,
-        x: start.x, y: start.y, r: start.r, vx: 0, vy: 0, w: 0,
-        // Each card catches each gust a little differently: its own strength and a sideways swirl.
-        feel: gusts.map(() => ({ gain: rand(0.55, 1.35), swirl: rand(-0.9, 0.9) })),
-        delay: wall ? ((wall.x / stage.width) + (wall.y / stage.height)) * 40 : 0,
+        id: word.id, el, start, end, hit,
+        r0: start.r, r1: clamp(start.r + turnBy, -50, 50),
+        lambda: rand(4.2, 5.6),
+        wobble: { amp: rand(4, 12), freq: rand(2.2, 3.4), phase: rand(0, Math.PI * 2) },
       };
     });
+    const finalSpot = (body: (typeof bodies)[number]) => ({ x: body.end.x, y: body.end.y, r: body.r1, s });
     if (reduce.current) {
-      bodies.forEach((body) => { spots.current.set(body.id, body.spot); if (body.el) applyPose(body.el, tablePose(body.spot.x, body.spot.y, body.spot.r, s)); });
+      bodies.forEach((body) => { const spot = finalSpot(body); spots.current.set(body.id, spot); if (body.el) applyPose(body.el, tablePose(spot.x, spot.y, spot.r, s)); });
       queueMicrotask(() => { busy.current = false; setPhase("play"); });
       return;
     }
-    const smooth = (a: number, b: number, t: number) => { const k = clamp((t - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+    const smooth = (t: number) => { const k = clamp(t, 0, 1); return k * k * (3 - 2 * k); };
     let frame = 0;
-    let last = performance.now();
-    const begin = last;
+    const begin = performance.now();
     const step = (now: number) => {
-      const dt = Math.min(0.033, (now - last) / 1000);
-      last = now;
       const t = now - begin;
-      const calm = smooth(650, 1500, t);
-      const pull = 46 * calm;
-      const drag = 1.6 + 8.4 * calm;
-      let settled = t > 1500;
+      let done = true;
       for (const body of bodies) {
-        const local = t - body.delay;
-        if (local < 0) { settled = false; continue; }
-        let ax = 0;
-        let ay = 0;
-        gusts.forEach((gust, g) => {
-          const u = (local - gust.start) / gust.length;
-          if (u <= 0 || u >= 1) return;
-          const strength = gust.strength * Math.sin(Math.PI * u) * body.feel[g].gain * (1 - calm);
-          const angle = gust.angle + body.feel[g].swirl * Math.sin(u * Math.PI * 2 + body.id);
-          ax += Math.cos(angle) * strength;
-          ay += Math.sin(angle) * strength;
+        if (!body.el) continue;
+        const u = Math.max(0, (t - body.hit) / 1000);
+        // Starts from rest, speeds up as the gust gets under the card, then friction slows it to a stop.
+        const travel = u <= 0 ? 0 : 1 - (1 + body.lambda * u) * Math.exp(-body.lambda * u);
+        const flutter = u <= 0 ? 0 : body.wobble.amp * Math.sin(u * body.wobble.freq * Math.PI * 2 + body.wobble.phase) * Math.exp(-3.2 * u) * (1 - Math.exp(-10 * u));
+        const shape = mix(body.start, table, smooth(u / 0.35));
+        const lift = 1 + 0.07 * Math.sin(Math.PI * clamp(u / 0.7, 0, 1));
+        applyPose(body.el, {
+          ...shape,
+          s: shape.s * lift, h: shape.h * lift, rad: shape.rad * lift,
+          x: lerp(body.start.x, body.end.x, travel) + perp.x * flutter,
+          y: lerp(body.start.y, body.end.y, travel) + perp.y * flutter,
+          r: lerp(body.r0, body.r1, travel) + flutter * 0.25,
         });
-        ax += (body.spot.x - body.x) * pull - body.vx * drag;
-        ay += (body.spot.y - body.y) * pull - body.vy * drag;
-        const margin = 30;
-        if (body.x < -margin) ax += (-margin - body.x) * 60;
-        if (body.x > stage.width + margin) ax -= (body.x - stage.width - margin) * 60;
-        if (body.y < 40) ay += (40 - body.y) * 60;
-        if (body.y > stage.height + margin) ay -= (body.y - stage.height - margin) * 60;
-        body.vx += ax * dt;
-        body.vy += ay * dt;
-        body.x += body.vx * dt;
-        body.y += body.vy * dt;
-        // Cards flutter: they spin with the sideways air and ease toward their resting angle as it calms.
-        const speed = Math.hypot(body.vx, body.vy);
-        const spin = ((body.vx * 0.6 - body.vy * 0.4) * 0.35) * (1 - calm);
-        body.w += (spin + (body.spot.r - body.r) * 28 * calm - body.w * (2.2 + 6 * calm)) * dt;
-        body.r += body.w * dt;
-        const k = smooth(0, 420, local);
-        const shape = mix(body.start, table, k);
-        const lift = 1 + Math.min(0.12, speed / 9000) * (1 - calm);
-        if (body.el) applyPose(body.el, { ...shape, s: shape.s * lift, h: shape.h * lift, rad: shape.rad * lift, x: body.x, y: body.y, r: body.r });
-        if (Math.hypot(body.spot.x - body.x, body.spot.y - body.y) > 0.8 || speed > 6 || Math.abs(body.spot.r - body.r) > 0.6) settled = false;
+        if (u < 1.5) done = false;
       }
-      if (!settled && t < 3200) { frame = requestAnimationFrame(step); return; }
+      if (!done) { frame = requestAnimationFrame(step); return; }
       bodies.forEach((body) => {
-        spots.current.set(body.id, body.spot);
-        if (body.el) applyPose(body.el, tablePose(body.spot.x, body.spot.y, body.spot.r, s));
+        const spot = finalSpot(body);
+        spots.current.set(body.id, spot);
+        if (body.el) applyPose(body.el, tablePose(spot.x, spot.y, spot.r, s));
       });
       busy.current = false;
       setPhase("play");
