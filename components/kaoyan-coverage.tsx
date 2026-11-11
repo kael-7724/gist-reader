@@ -93,7 +93,7 @@ export function KaoyanCoverage({ articles, savedWords }: { articles: CoverageArt
 
   return (
     <section className="stats-section coverage">
-      <div className="stats-section-head"><h2>考研词覆盖</h2><span>共 {coverage.total.toLocaleString()} 词</span></div>
+      <div className="stats-section-head"><h2>考研词覆盖</h2><span>{coverage.total.toLocaleString()}</span></div>
       <div className="coverage-main">
         <Meter label="遇到过" value={coverage.met} total={coverage.total} large />
         <Meter label="已收藏" value={coverage.saved} total={coverage.total} large />
@@ -108,7 +108,7 @@ export function KaoyanCoverage({ articles, savedWords }: { articles: CoverageArt
           <h3>《{latestName}》新遇到 {coverage.latest.fresh.length} 个</h3>
           {coverage.latest.fresh.length ? <div className="coverage-chips">{coverage.latest.fresh.slice(0, 30).map((index) => (
             <span key={index} className={coverage.savedSet.has(index) ? "saved" : undefined} title={`真题出现 ${entries[index][2]} 次`}>{entries[index][0][0]}</span>
-          ))}{coverage.latest.fresh.length > 30 && <span className="more">+{coverage.latest.fresh.length - 30}</span>}</div> : <p className="stats-empty">这篇里的考研词之前都遇到过了。</p>}
+          ))}{coverage.latest.fresh.length > 30 && <span className="more">+{coverage.latest.fresh.length - 30}</span>}</div> : <p className="stats-empty">没有新词</p>}
         </div>
       )}
 

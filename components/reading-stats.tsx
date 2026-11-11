@@ -108,7 +108,7 @@ export function ReadingStats({ active, onOpenArticle, children }: { active: bool
   }, [active]);
 
   if (error && !stats) return <div className="stats-page"><p className="stats-empty">{error}</p></div>;
-  if (!stats) return <div className="stats-page"><p className="stats-empty"><Loader2 className="size-4 animate-spin" />正在读取统计…</p></div>;
+  if (!stats) return <div className="stats-page"><p className="stats-empty"><Loader2 className="size-4 animate-spin" /></p></div>;
 
   const scaleMax = niceMax(Math.max(...stats.days.map((day) => minutes(day.seconds)), 5));
   const recent = [...stats.days].reverse().slice(0, 14);
@@ -119,7 +119,7 @@ export function ReadingStats({ active, onOpenArticle, children }: { active: bool
 
   return (
     <div className="stats-page">
-      <header className="library-header"><div><p className="eyebrow">阅读统计</p><h1>统计</h1></div></header>
+      <header className="library-header"><div><h1>统计</h1></div></header>
 
       <section className="stats-tiles" aria-label="概览">
         <div className="stats-tile"><span>今天</span><strong>{today.value}<small>{today.unit}</small></strong></div>
@@ -129,7 +129,7 @@ export function ReadingStats({ active, onOpenArticle, children }: { active: bool
       </section>
 
       <section className="stats-section">
-        <div className="stats-section-head"><h2>最近 30 天阅读时长</h2><span>分钟</span></div>
+        <div className="stats-section-head"><h2>近 30 天</h2><span>分钟</span></div>
         <div className="stats-chart" onMouseLeave={() => setHovered(null)}>
           <div className="stats-gridline" style={{ bottom: "100%" }}><span>{scaleMax}</span></div>
           <div className="stats-gridline" style={{ bottom: "50%" }}><span>{scaleMax / 2}</span></div>
@@ -182,7 +182,7 @@ export function ReadingStats({ active, onOpenArticle, children }: { active: bool
           <div className="stats-section-head"><h2>读得最久的文章</h2><span>最近 30 天</span></div>
           {stats.topArticles.length ? <ol className="stats-top">{stats.topArticles.map((article) => (
             <li key={article.id}><button type="button" onClick={() => onOpenArticle(article.id)}><span title={article.title}>{article.shortTitle || article.title}</span><small>{durationText(article.seconds)}</small></button></li>
-          ))}</ol> : <p className="stats-empty">还没有阅读记录。打开一篇文章开始读，时间会自动记下来。</p>}
+          ))}</ol> : <p className="stats-empty">还没有记录</p>}
         </section>
       </div>
     </div>

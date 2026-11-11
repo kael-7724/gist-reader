@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { BarChart3, Shuffle, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
 import { KaoyanCoverage } from "@/components/kaoyan-coverage";
 import { TranslationSheet } from "@/components/translation-sheet";
+import { WordWall } from "@/components/word-wall";
 import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -161,6 +162,7 @@ export default function Home() {
   const [kaoyanOn, setKaoyanOn] = useState(true);
   // 标记模式: selecting a word saves it straight to the book without showing its meaning.
   const [markMode, setMarkMode] = useState(false);
+  const [wallOpen, setWallOpen] = useState(false);
   const readerPanelRef = useRef<HTMLElement | null>(null);
   const articleBodyRef = useRef<HTMLDivElement | null>(null);
   const lastPickRef = useRef({ text: "", at: 0 });
@@ -266,7 +268,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => { setSelectedWordIds(null); setPinnedWordId(null); setExpandedWordId(null); setRevealedWordIds([]); });
+    queueMicrotask(() => { setSelectedWordIds(null); setPinnedWordId(null); setExpandedWordId(null); setRevealedWordIds([]); setWallOpen(false); });
   }, [tab]);
 
   useEffect(() => {
@@ -282,7 +284,7 @@ export default function Home() {
     setMarkMode(next);
     try { localStorage.setItem("gist-mark-mode", next ? "on" : "off"); } catch { /* Device preference only. */ }
     if (next) setSelection(null);
-    toast(next ? "标记模式：划词直接收藏，不显示释义" : "查词模式：划词显示释义", { duration: 1800 });
+    toast(next ? "标记模式" : "查词模式", { duration: 1200 });
   }
 
   function toggleKaoyan() {
@@ -736,27 +738,28 @@ export default function Home() {
           <>
             <LibraryHeader
               title={isPhraseBook ? "词组本" : "单词本"}
-              subtitle={selectedWordIds === null ? undefined : `选择要删除的${unit}`}
+              subtitle={undefined}
               query={query}
               setQuery={setQuery}
               count={bookItems.length}
               action={selectedWordIds === null ? (
                 <>
-                    <Button variant="outline" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}{translationsHidden ? "显示全部释义" : "隐藏全部释义"}</Button>
-                    <Button variant="outline" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()}><Sparkles className="size-4" />生成联想{bookItems.filter((word) => !word.similarJson).length > 10 ? "（前10个）" : ""}</Button>
-                    {!isPhraseBook && <Button variant="outline" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))}>{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}批量同步{words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).length > 30 ? "前30词" : ""}</Button>}
-                  <Button variant="outline" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection}><Trash2 className="size-4" />批量删除</Button>
+                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.length} onClick={() => setWallOpen(true)} aria-label="翻卡" title="翻卡"><Shuffle className="size-4" /></Button>
+                    <Button variant="outline" size="icon" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }} aria-label={translationsHidden ? "显示释义" : "隐藏释义"} title={translationsHidden ? "显示释义" : "隐藏释义"}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</Button>
+                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()} aria-label="生成联想" title="生成联想">{enrichingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>
+                    {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))} aria-label="同步墨墨" title="同步墨墨">{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}</Button>}
+                  <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection} aria-label="批量删除" title="批量删除"><Trash2 className="size-4" /></Button>
                 </>
               ) : (
                 <>
-                  <span className="text-sm text-muted-foreground" role="status">已选 {selectedWordIds.size} 个</span>
+                  <span className="text-sm text-muted-foreground" role="status">{selectedWordIds.size}</span>
                   <Button variant="outline" className="rounded-xl" disabled={deletingWords || !filteredWords.length} onClick={() => setSelectedWordIds(new Set(allFilteredWordsSelected ? [] : filteredWords.map((word) => word.id)))}>
-                    {allFilteredWordsSelected ? "取消全选" : "全选当前结果"}
+                    {allFilteredWordsSelected ? "取消全选" : "全选"}
                   </Button>
-                  <Button variant="outline" className="rounded-xl" disabled={deletingWords} onClick={() => setSelectedWordIds(null)}>退出多选</Button>
+                  <Button variant="outline" className="rounded-xl" disabled={deletingWords} onClick={() => setSelectedWordIds(null)}>取消</Button>
                   <AlertDialog open={confirmWordDeletion} onOpenChange={(open) => { if (!deletingWords) setConfirmWordDeletion(open); }}>
                     <AlertDialogTrigger asChild>
-                      <Button variant="outline" className="rounded-xl text-destructive" disabled={!selectedWordIds.size || deletingWords}><Trash2 className="size-4" />删除所选</Button>
+                      <Button variant="outline" className="rounded-xl text-destructive" disabled={!selectedWordIds.size || deletingWords}><Trash2 className="size-4" />删除</Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent onEscapeKeyDown={(event) => { if (deletingWords) event.preventDefault(); }}>
                       <AlertDialogHeader>
@@ -792,13 +795,14 @@ export default function Home() {
                     </span>
                   </label>
                 ))}</div>)}
-            </div> : <EmptyLibrary icon={isPhraseBook ? <Layers /> : <Bookmark />} text={bookItems.length ? `没有符合搜索条件的${unit}。` : `划选文章中的${unit}，它会出现在这里。`} setTab={setTab} />}
+            </div> : <EmptyLibrary icon={isPhraseBook ? <Layers /> : <Bookmark />} text={bookItems.length ? "没有结果" : `还没有${unit}`} setTab={setTab} />}
           </>
   );
 
   return (
     <main className="app-shell">
       <Toaster position="top-center" theme="dark" />
+      {wallOpen && <WordWall words={filteredWords.map((word) => ({ id: word.id, text: word.text, translation: word.translation }))} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">
           <TabsList className="reader-tabs" aria-label="页面导航">
@@ -809,17 +813,17 @@ export default function Home() {
             <TabsTrigger value="stats" className="reader-tab" aria-label="统计" title="阅读统计"><BarChart3 /><span className="reader-tab-label">统计</span></TabsTrigger>
           </TabsList>
           <div className="topbar-actions">
-            <Button variant={kaoyanOn ? "default" : "outline"} className="rounded-xl" aria-pressed={kaoyanOn} onClick={toggleKaoyan} aria-label={kaoyanOn ? "隐藏考研词标记" : "显示考研词标记"} title="在文章中用虚线标出考研词汇"><Highlighter className="size-4" /><span className="button-label">考研词</span></Button>
-            <Button variant={markMode ? "default" : "outline"} className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式：划词直接收藏，不显示释义" : "查词模式：划词显示释义"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
-            <Dialog open={readingOpen} onOpenChange={setReadingOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="阅读设置" title="阅读排版"><Type className="size-4" /><span className="button-label">阅读设置</span></Button></DialogTrigger>
-              <DialogContent className="rounded-xl sm:max-w-md"><DialogHeader><DialogTitle className="text-2xl">阅读设置</DialogTitle><DialogDescription>调整文章的字号、行距、字距和字体。设置仅保存在当前设备。</DialogDescription></DialogHeader>
+            <Button variant={kaoyanOn ? "default" : "outline"} className="rounded-xl" aria-pressed={kaoyanOn} onClick={toggleKaoyan} aria-label={kaoyanOn ? "隐藏考研词标记" : "显示考研词标记"} title="考研词"><Highlighter className="size-4" /><span className="button-label">考研词</span></Button>
+            <Button variant={markMode ? "default" : "outline"} className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式" : "查词模式"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
+            <Dialog open={readingOpen} onOpenChange={setReadingOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="阅读设置" title="阅读设置"><Type className="size-4" /><span className="button-label">阅读设置</span></Button></DialogTrigger>
+              <DialogContent className="rounded-xl sm:max-w-md"><DialogHeader><DialogTitle className="text-2xl">阅读设置</DialogTitle><DialogDescription className="sr-only">字号、行距、字距和字体</DialogDescription></DialogHeader>
                 <div className="reading-controls"><label>字号 <strong>{readingSettings.fontSize}px</strong><input type="range" min="14" max="32" step="1" value={readingSettings.fontSize} onChange={(event) => updateReadingSettings({ ...readingSettings, fontSize: Number(event.target.value) })} /></label>
                   <label>行距 <strong>{readingSettings.lineHeight.toFixed(2)}</strong><input type="range" min="1.3" max="2.6" step="0.05" value={readingSettings.lineHeight} onChange={(event) => updateReadingSettings({ ...readingSettings, lineHeight: Number(event.target.value) })} /></label>
                   <label>字距 <strong>{readingSettings.letterSpacing.toFixed(1)}px</strong><input type="range" min="0" max="2" step="0.1" value={readingSettings.letterSpacing} onChange={(event) => updateReadingSettings({ ...readingSettings, letterSpacing: Number(event.target.value) })} /></label>
                   <label>字体 <select value={readingSettings.fontFamily} onChange={(event) => updateReadingSettings({ ...readingSettings, fontFamily: event.target.value as ReadingSettings["fontFamily"] })}><option value="georgia">Georgia 衬线</option><option value="serif">系统衬线</option><option value="sans">系统无衬线</option></select></label>
                   <Button variant="outline" className="rounded-xl" onClick={() => updateReadingSettings(defaultReadingSettings)}>恢复默认</Button></div>
               </DialogContent></Dialog>
-            <Dialog open={aiOpen} onOpenChange={setAiOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="DeepSeek 翻译与词汇联想" title="DeepSeek 翻译与词汇联想"><Sparkles className="size-4" /><span className="button-label">DeepSeek</span>{deepseekConnected && <span className="connection-dot" />}</Button></DialogTrigger>
+            <Dialog open={aiOpen} onOpenChange={setAiOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="DeepSeek" title="DeepSeek"><Sparkles className="size-4" /><span className="button-label">DeepSeek</span>{deepseekConnected && <span className="connection-dot" />}</Button></DialogTrigger>
               <DialogContent className="rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">DeepSeek</DialogTitle><DialogDescription className="sr-only">翻译与词汇联想</DialogDescription></DialogHeader>
                 {deepseekConnected && <div className="connection-panel connected"><span className="connection-icon"><CloudCheck /></span><div><h3>已连接</h3></div></div>}
                 {aiConnected && !deepseekConnected && <p className="security-note">请重新填写 API Key</p>}
@@ -828,31 +832,31 @@ export default function Home() {
                 <Button className="rounded-xl" disabled={aiLoading} onClick={() => void connectAi()}>{aiLoading && <Loader2 className="size-4 animate-spin" />}保存</Button>
                 {aiConnected && <Button variant="outline" className="rounded-xl text-destructive" disabled={aiLoading} onClick={() => void disconnectAi()}><Unlink className="size-4" />断开</Button>}
               </DialogContent></Dialog>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="墨墨连接"><Settings2 className="size-4" /><span className="button-label">墨墨连接</span>{maimemoConnected && <span className="connection-dot" />}</Button></DialogTrigger>
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="墨墨背单词" title="墨墨背单词"><Settings2 className="size-4" /><span className="button-label">墨墨连接</span>{maimemoConnected && <span className="connection-dot" />}</Button></DialogTrigger>
               <DialogContent className="rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">墨墨背单词</DialogTitle><DialogDescription className="sr-only">同步单词到墨墨</DialogDescription></DialogHeader>
                 {maimemoConnected ? <div className="connection-panel connected"><span className="connection-icon"><CloudCheck /></span><div><h3>已连接</h3></div></div> : <><a className="token-link" href="https://open.maimemo.com/open/api/v1/tokens/openapi" target="_blank" rel="noreferrer">获取凭证 <ExternalLink className="size-4" /></a><Input type="password" autoComplete="off" value={maimemoToken} onChange={(event) => setMaimemoToken(event.target.value)} placeholder="粘贴凭证" className="h-12 rounded-xl" /><Button className="h-11 rounded-xl" onClick={() => void connectMaimemo()} disabled={maimemoLoading}>{maimemoLoading && <Loader2 className="size-4 animate-spin" />}连接</Button></>}
                 {maimemoConnected && <AlertDialog><AlertDialogTrigger asChild><Button variant="outline" className="rounded-xl text-destructive"><Unlink className="size-4" />断开</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>断开墨墨连接？</AlertDialogTitle><AlertDialogDescription>已同步的单词不受影响。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void disconnectMaimemo()}>断开</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}
               </DialogContent></Dialog>
-            <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button className="rounded-xl px-4" aria-label="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
-              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加英语文章</DialogTitle><DialogDescription>上传 TXT、DOCX，或者直接粘贴文章内容。</DialogDescription></DialogHeader>
-                <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">选择 TXT 或 DOCX 文件</span><span className="text-sm text-muted-foreground">文件只用于提取文字</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
-                <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="文章标题" className="h-11 rounded-xl" />
-                <Input value={draftShort} onChange={(event) => setDraftShort([...event.target.value].slice(0, 5).join(""))} placeholder="简称，最多 5 个字（如：粉色噪音）" className="h-11 rounded-xl" />
-                <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="在这里粘贴英语文章……" className="min-h-56 rounded-xl leading-7" />
-                <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}保存并开始阅读</Button>
+            <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
+              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
+                <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">TXT / DOCX</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
+                <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="标题" className="h-11 rounded-xl" />
+                <Input value={draftShort} onChange={(event) => setDraftShort([...event.target.value].slice(0, 5).join(""))} placeholder="简称（≤5 字）" className="h-11 rounded-xl" />
+                <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="粘贴正文" className="min-h-56 rounded-xl leading-7" />
+                <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
           </div>
         </header>
 
-        <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? `导入于 ${formatImportDate(activeArticle.createdAt)}` : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
+        <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
-    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · 发表于 {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文链接</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
+    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
           <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
 
           <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>
           <TabsContent value="phrases" className="library-page">{wordBookView}</TabsContent>
 
-          <TabsContent value="sentences" className="library-page"><LibraryHeader title="句子本" query={query} setQuery={setQuery} count={sentences.length} />{filteredSentences.length ? <div className="sentence-list">{filteredSentences.map((sentence) => <section className="sentence-card" key={sentence.id}><div className="sentence-english">{tokenize(sentence.text).map((token, index) => /^[A-Za-z]/.test(token) ? <WordHover key={`${token}-${index}`} word={token} articleId={sentence.articleId} known={wordMap[token.toLowerCase()]} mode={translationMode} /> : <span key={`${token}-${index}`}>{token}</span>)}</div><p className="sentence-translation">{sentence.translation}</p><div className="sentence-meta"><span>来自《{sourceLabel(sentence.articleId, sentence.articleTitle)}》</span><Button variant="ghost" size="icon" onClick={() => void removeItem("sentence", sentence.id)} aria-label="删除"><Trash2 /></Button></div></section>)}</div> : <EmptyLibrary icon={<Library />} text="划选文章中的句子，它会出现在这里。" setTab={setTab} />}</TabsContent>
+          <TabsContent value="sentences" className="library-page"><LibraryHeader title="句子本" query={query} setQuery={setQuery} count={sentences.length} />{filteredSentences.length ? <div className="sentence-list">{filteredSentences.map((sentence) => <section className="sentence-card" key={sentence.id}><div className="sentence-english">{tokenize(sentence.text).map((token, index) => /^[A-Za-z]/.test(token) ? <WordHover key={`${token}-${index}`} word={token} articleId={sentence.articleId} known={wordMap[token.toLowerCase()]} mode={translationMode} /> : <span key={`${token}-${index}`}>{token}</span>)}</div><p className="sentence-translation">{sentence.translation}</p><div className="sentence-meta"><span>{sourceLabel(sentence.articleId, sentence.articleTitle)}</span><Button variant="ghost" size="icon" onClick={() => void removeItem("sentence", sentence.id)} aria-label="删除"><Trash2 /></Button></div></section>)}</div> : <EmptyLibrary icon={<Library />} text="划选文章中的句子，它会出现在这里。" setTab={setTab} />}</TabsContent>
           <TabsContent value="stats" className="library-page"><ReadingStats active={tab === "stats"} onOpenArticle={(id) => { setActiveArticleId(id); setTab("read"); }}>{tab === "stats" && <KaoyanCoverage articles={articles} savedWords={savedWordTexts} />}</ReadingStats></TabsContent>
         </section>
 
@@ -866,10 +870,10 @@ export default function Home() {
 }
 
 function LibraryHeader({ title, subtitle, query, setQuery, count, action }: { title: string; subtitle?: string; query: string; setQuery: (value: string) => void; count: number; action?: React.ReactNode }) {
-  return <header className="library-header"><div><p className="eyebrow">{count} 条</p><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div><div className="library-actions">{action}<label className="search-box"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" /></label></div></header>;
+  return <header className="library-header"><div><h1>{title}<span className="library-count">{count}</span></h1>{subtitle && <p>{subtitle}</p>}</div><div className="library-actions">{action}<label className="search-box"><Search className="size-4" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索" /></label></div></header>;
 }
 function EmptyLibrary({ icon, text, setTab }: { icon: React.ReactNode; text: string; setTab: (value: string) => void }) {
-  return <div className="empty-library"><span>{icon}</span><p>{text}</p><Button variant="outline" className="rounded-xl" onClick={() => setTab("read")}>去阅读文章</Button></div>;
+  return <div className="empty-library"><span>{icon}</span><p>{text}</p><Button variant="outline" className="rounded-xl" onClick={() => setTab("read")}><BookOpen className="size-4" />去阅读</Button></div>;
 }
 
 function SavedWordCard({ word, open, translationVisible, aiConnected, enriching, syncing, onHoverStart, onHoverEnd, onToggle, onMoveFirst, onDismiss, onEnrich, onSync, onDelete }: {
@@ -885,9 +889,9 @@ function SavedWordCard({ word, open, translationVisible, aiConnected, enriching,
       <span className="word-row-text">{word.text}</span>{translationVisible && <span className="word-row-translation">{word.translation}</span>}
     </button>
     <div className="word-row-reveal" aria-hidden={!open}><div className="word-row-reveal-inner">
-      <div className="word-row-related">{word.similarJson && word.lookalikeJson ? <><RelatedWords title="意思相近" raw={word.similarJson} /><RelatedWords title="长得相像" raw={word.lookalikeJson} /></> : <div className="word-popover-pending">{enriching ? <><Loader2 className="size-4 animate-spin" />正在生成词汇联想…</> : aiConnected ? "尚未生成词汇联想" : "连接 AI 接口后可生成词汇联想"}</div>}</div>
-      {word.syncStatus === "failed" && word.syncError && <p className="word-popover-error">墨墨同步失败：{word.syncError}</p>}
-      <div className="word-popover-actions"><Button variant="outline" size="sm" disabled={enriching} tabIndex={open ? 0 : -1} onClick={onEnrich}>{enriching ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}{word.similarJson ? "重新生成" : "生成联想"}</Button><Button variant="outline" size="sm" disabled={syncing || word.syncStatus === "synced" || word.text.includes(" ")} tabIndex={open ? 0 : -1} onClick={onSync}>{syncing ? <Loader2 className="size-3.5 animate-spin" /> : word.syncStatus === "synced" ? <CloudCheck className="size-3.5" /> : <Cloud className="size-3.5" />}{word.text.includes(" ") ? "词组不同步" : word.syncStatus === "synced" ? "已同步" : "同步墨墨"}</Button><Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={() => speak(word.text)} aria-label={`朗读 ${word.text}`}><Volume2 className="size-4" /></Button><Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={onDelete} aria-label={`删除 ${word.text}`}><Trash2 className="size-4" /></Button></div>
+      <div className="word-row-related">{word.similarJson && word.lookalikeJson ? <><RelatedWords title="近义" raw={word.similarJson} /><RelatedWords title="形近" raw={word.lookalikeJson} /></> : <div className="word-popover-pending">{enriching ? <Loader2 className="size-4 animate-spin" /> : null}</div>}</div>
+      {word.syncStatus === "failed" && word.syncError && <p className="word-popover-error">同步失败：{word.syncError}</p>}
+      <div className="word-popover-actions"><Button variant="ghost" size="icon" disabled={enriching || !aiConnected} tabIndex={open ? 0 : -1} onClick={onEnrich} aria-label={word.similarJson ? "重新生成联想" : "生成联想"} title={word.similarJson ? "重新生成联想" : "生成联想"}>{enriching ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>{!word.text.includes(" ") && <Button variant="ghost" size="icon" disabled={syncing || word.syncStatus === "synced"} tabIndex={open ? 0 : -1} onClick={onSync} aria-label={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"} title={word.syncStatus === "synced" ? "已同步墨墨" : "同步墨墨"}>{syncing ? <Loader2 className="size-4 animate-spin" /> : word.syncStatus === "synced" ? <CloudCheck className="size-4" /> : <Cloud className="size-4" />}</Button>}<Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={() => speak(word.text)} aria-label={`朗读 ${word.text}`}><Volume2 className="size-4" /></Button><Button variant="ghost" size="icon" tabIndex={open ? 0 : -1} onClick={onDelete} aria-label={`删除 ${word.text}`}><Trash2 className="size-4" /></Button></div>
     </div></div>
   </section>;
 }
