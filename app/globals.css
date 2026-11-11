@@ -291,10 +291,3 @@ button{touch-action:manipulation}
 .ww-active .library-header,.ww-active .article-dock{opacity:0;pointer-events:none}
 @media (max-width:640px){.library-actions{flex-direction:row;flex-wrap:wrap;align-items:center}.library-actions .search-box{flex:1 0 100%}}
 .saved-word.kaoyan-word,.saved-word .kaoyan-word{border-bottom:0;padding-bottom:0;text-decoration:underline dotted;text-decoration-thickness:2px;text-underline-offset:.22em;text-decoration-skip-ink:none}
-.ww-gust{position:absolute;left:0;top:0;width:0;height:0;z-index:8999;pointer-events:none}
-.ww-gust span{position:absolute;left:-60px;top:-60px;width:120px;height:120px;border-radius:50%;border:1px solid rgb(255 255 255/.35);opacity:0;transform:scale(.2)}
-.ww-gust.is-on span{animation:ww-gust 1.1s cubic-bezier(.2,.7,.3,1) infinite}
-.ww-gust.is-on span:nth-child(2){animation-delay:.37s}
-.ww-gust.is-on span:nth-child(3){animation-delay:.74s}
-@keyframes ww-gust{0%{opacity:.7;transform:scale(.15)}100%{opacity:0;transform:scale(3.4)}}
-@media (prefers-reduced-motion:reduce){.ww-gust.is-on span{animation:none;opacity:.4;transform:scale(1)}}

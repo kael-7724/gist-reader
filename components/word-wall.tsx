@@ -135,7 +135,6 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
   const blow = useRef<{ x: number; y: number; on: boolean; puff: number } | null>(null);
   const motion = useRef(new Map<number, { vx: number; vy: number; w: number }>());
   const windLoop = useRef(0);
-  const gustRef = useRef<HTMLDivElement | null>(null);
   const reduce = useRef(false);
   const ms = (value: number) => (reduce.current ? 1 : value);
 
@@ -453,19 +452,12 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     windLoop.current = requestAnimationFrame(step);
   }
 
-  function placeGust(x: number, y: number) {
-    const el = gustRef.current;
-    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-  }
-
   function onStageDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.target !== event.currentTarget || phase !== "play" || lifted) return;
     const x = event.clientX - stage.left;
     const y = event.clientY - stage.top;
     blow.current = { x, y, on: true, puff: 14000 };
     event.currentTarget.setPointerCapture(event.pointerId);
-    placeGust(x, y);
-    gustRef.current?.classList.add("is-on");
     setHint(false);
     runWind();
   }
@@ -473,12 +465,10 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     if (!blow.current?.on) return;
     blow.current.x = event.clientX - stage.left;
     blow.current.y = event.clientY - stage.top;
-    placeGust(blow.current.x, blow.current.y);
   }
   function onStageUp() {
     if (!blow.current) return;
     blow.current.on = false;
-    gustRef.current?.classList.remove("is-on");
   }
 
   useEffect(() => () => cancelAnimationFrame(windLoop.current), []);
@@ -578,7 +568,6 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
 
   return createPortal(
     <div className="ww-stage" style={{ left: stage.left, top: stage.top, width: stage.width, height: stage.height }} role="dialog" aria-modal="true" aria-label="翻卡" onPointerDown={onStageDown} onPointerMove={onStageMove} onPointerUp={onStageUp} onPointerCancel={onStageUp}>
-      <div ref={gustRef} className="ww-gust" aria-hidden="true"><span /><span /><span /></div>
       {words.map((word, index) => (phase !== "rebuild" && phase !== "deal" && gone.has(word.id)) ? null : (
         <button
           key={word.id}
