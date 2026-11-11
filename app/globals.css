@@ -342,3 +342,22 @@ button{touch-action:manipulation}
 @media (max-width:640px){.library-actions{flex-direction:row;flex-wrap:wrap;align-items:center}.library-actions .search-box{flex:1 0 100%}}
 .saved-word.kaoyan-word,.saved-word .kaoyan-word{border-bottom:0;padding-bottom:0;text-decoration:underline dotted;text-decoration-thickness:2px;text-underline-offset:.22em;text-decoration-skip-ink:none}
 .word-grid .word-row:not(.expanded){content-visibility:auto;contain-intrinsic-size:auto 58px}
+.pick-list{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.pick-card{display:grid;gap:6px;width:100%;text-align:left;border:1px solid var(--border);border-radius:16px;background:transparent;color:var(--foreground);padding:14px 16px;cursor:pointer;transition:border-color .2s,opacity .2s}
+.pick-card:hover{border-color:var(--foreground)}
+.pick-card:disabled{cursor:progress}
+.pick-card.is-added{opacity:.55}
+.pick-card.is-added:hover{opacity:1}
+.pick-head{display:flex;align-items:center;gap:8px;min-width:0}
+.pick-chip{flex:none;padding:0 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;line-height:1.7}
+.pick-meta{flex:1;min-width:0;font-size:12px;line-height:1.45;color:var(--muted-foreground)}
+.pick-action{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:999px;border:1px solid var(--border)}
+.pick-card:not(.is-added):hover .pick-action{background:var(--foreground);color:var(--background);border-color:var(--foreground)}
+.pick-title{font-family:Georgia,"Times New Roman",serif;font-size:18px;line-height:1.35;font-weight:600}
+.pick-excerpt{font-size:13px;line-height:1.6;color:var(--muted-foreground);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.settings-dialog{gap:0}
+.settings-section{display:grid;gap:10px;padding:18px 0;border-top:1px solid var(--border)}
+.settings-section:first-of-type{border-top:0;padding-top:8px}
+.settings-section:last-child{padding-bottom:0}
+.settings-section>h3{display:flex;align-items:center;gap:8px;margin:0 0 2px;font-size:15px;font-weight:600;color:var(--foreground)}
+.settings-state{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted-foreground)}

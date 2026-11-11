@@ -1,14 +1,15 @@
 "use client";
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Moon, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { BarChart3, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
 import { KaoyanCoverage } from "@/components/kaoyan-coverage";
 import { TranslationSheet } from "@/components/translation-sheet";
 import { WordWall } from "@/components/word-wall";
-import { AccountDialog } from "@/components/account-dialog";
+import { AccountSection } from "@/components/account-dialog";
+import { DailyPicks } from "@/components/daily-picks";
 import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -145,7 +146,6 @@ export default function Home() {
   const translationMode: TranslationMode = "realtime";
   const [readingOpen, setReadingOpen] = useState(false);
   const [readingSettings, setReadingSettings] = useState<ReadingSettings>(defaultReadingSettings);
-  const [aiOpen, setAiOpen] = useState(false);
   const [aiConnected, setAiConnected] = useState(false);
   const [aiEndpoint, setAiEndpoint] = useState("https://api.deepseek.com/chat/completions");
   const [aiModel, setAiModel] = useState("deepseek-flash");
@@ -379,7 +379,7 @@ export default function Home() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "翻译暂时不可用";
       if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: message, loading: false, error: true });
-      if (message.includes("DeepSeek")) setAiOpen(true);
+      if (message.includes("DeepSeek")) openSettings("deepseek");
     }
   }
 
@@ -458,7 +458,7 @@ export default function Home() {
       drop();
       const message = error instanceof Error ? error.message : "标记失败";
       toast.error(`没有标记上：${message}`);
-      if (message.includes("DeepSeek")) setAiOpen(true);
+      if (message.includes("DeepSeek")) openSettings("deepseek");
     }
   }
 
@@ -535,6 +535,17 @@ export default function Home() {
     } else setDraftText(await file.text());
   }
 
+  function openPicked(article: Article, added: boolean) {
+    if (added) setArticles((items) => [article, ...items.filter((item) => item.id !== 0 && item.id !== article.id)]);
+    setActiveArticleId(article.id); setTab("read");
+    if (added) toast.success("已加入文章库");
+  }
+
+  function openSettings(section: "deepseek" | "maimemo") {
+    setSettingsOpen(true);
+    setTimeout(() => document.getElementById(`settings-${section}`)?.scrollIntoView({ block: "start", behavior: "smooth" }), 250);
+  }
+
   async function addArticle() {
     if (!draftTitle.trim() || !draftText.trim()) { toast.error("请填写标题和文章内容"); return; }
     setSaving(true);
@@ -544,7 +555,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error);
       setArticles((items) => [data.article, ...items.filter((item) => item.id !== 0)]); setActiveArticleId(data.article.id);
       setDraftTitle(""); setDraftText(""); setDraftShort(""); setUploadOpen(false); setTab("read");
-      if (!deepseekConnected) { toast.success("文章已保存，请先连接 DeepSeek"); setAiOpen(true); }
+      if (!deepseekConnected) { toast.success("文章已保存，请先连接 DeepSeek"); openSettings("deepseek"); }
       else toast.success("文章已保存，划词或划句时会实时翻译");
     } catch { toast.error("文章保存失败，请稍后重试"); } finally { setSaving(false); }
   }
@@ -685,7 +696,7 @@ export default function Home() {
   }
 
   async function enrichWord(id: number, refresh = false) {
-    if (!deepseekConnected) { setAiOpen(true); toast.info("请先连接 DeepSeek API"); return false; }
+    if (!deepseekConnected) { openSettings("deepseek"); toast.info("请先连接 DeepSeek API"); return false; }
     setEnrichingIds((items) => [...new Set([...items, id])]);
     try {
       const response = await fetch("/api/ai/enrich", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, refresh }) });
@@ -698,7 +709,7 @@ export default function Home() {
   }
 
   async function enrichMissingWords() {
-    if (!deepseekConnected) { setAiOpen(true); toast.info("请先连接 DeepSeek API"); return; }
+    if (!deepseekConnected) { openSettings("deepseek"); toast.info("请先连接 DeepSeek API"); return; }
     const batch = bookItems.filter((word) => !word.similarJson && !enrichingIds.includes(word.id)).slice(0, 10);
     if (!batch.length) return toast.info(`所有${unit}都已生成联想`);
     let completed = 0;
@@ -729,7 +740,7 @@ export default function Home() {
   }
 
   async function syncWords(ids: number[]) {
-    if (!maimemoConnected) { setSettingsOpen(true); toast.info("请先连接墨墨背单词"); return; }
+    if (!maimemoConnected) { openSettings("maimemo"); toast.info("请先连接墨墨背单词"); return; }
     const batch = ids.filter((id) => !syncingIds.includes(id)).slice(0, 30);
     if (!batch.length) return toast.info("没有需要同步的单词");
     setSyncingIds((items) => [...new Set([...items, ...batch])]);
@@ -870,20 +881,7 @@ export default function Home() {
                   <label>字体 <select value={readingSettings.fontFamily} onChange={(event) => updateReadingSettings({ ...readingSettings, fontFamily: event.target.value as ReadingSettings["fontFamily"] })}><option value="georgia">Georgia 衬线</option><option value="serif">系统衬线</option><option value="sans">系统无衬线</option></select></label>
                   <Button variant="outline" className="rounded-xl" onClick={() => updateReadingSettings(defaultReadingSettings)}>恢复默认</Button></div>
               </DialogContent></Dialog>
-            <Dialog open={aiOpen} onOpenChange={setAiOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="DeepSeek" title="DeepSeek"><Sparkles className="size-4" /><span className="button-label">DeepSeek</span>{deepseekConnected && <span className="connection-dot" />}</Button></DialogTrigger>
-              <DialogContent className="rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">DeepSeek</DialogTitle><DialogDescription className="sr-only">翻译与词汇联想</DialogDescription></DialogHeader>
-                {deepseekConnected && <div className="connection-panel connected"><span className="connection-icon"><CloudCheck /></span><div><h3>已连接</h3></div></div>}
-                {aiConnected && !deepseekConnected && <p className="security-note">请重新填写 API Key</p>}
-                <label className="ai-field">联想模式<select className="ai-mode-select" value={aiThinkingMode} onChange={(event) => setAiThinkingMode(event.target.value as "disabled" | "enabled")}><option value="disabled">快速</option><option value="enabled">深度思考</option></select></label>
-                <label className="ai-field">API Key<Input type="password" autoComplete="off" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder={deepseekConnected ? "留空则不变" : "粘贴 API Key"} className="mt-1 h-11 rounded-xl" /></label>
-                <Button className="rounded-xl" disabled={aiLoading} onClick={() => void connectAi()}>{aiLoading && <Loader2 className="size-4 animate-spin" />}保存</Button>
-                {aiConnected && <Button variant="outline" className="rounded-xl text-destructive" disabled={aiLoading} onClick={() => void disconnectAi()}><Unlink className="size-4" />断开</Button>}
-              </DialogContent></Dialog>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="墨墨背单词" title="墨墨背单词"><Settings2 className="size-4" /><span className="button-label">墨墨连接</span>{maimemoConnected && <span className="connection-dot" />}</Button></DialogTrigger>
-              <DialogContent className="rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">墨墨背单词</DialogTitle><DialogDescription className="sr-only">同步单词到墨墨</DialogDescription></DialogHeader>
-                {maimemoConnected ? <div className="connection-panel connected"><span className="connection-icon"><CloudCheck /></span><div><h3>已连接</h3></div></div> : <><a className="token-link" href="https://open.maimemo.com/open/api/v1/tokens/openapi" target="_blank" rel="noreferrer">获取凭证 <ExternalLink className="size-4" /></a><Input type="password" autoComplete="off" value={maimemoToken} onChange={(event) => setMaimemoToken(event.target.value)} placeholder="粘贴凭证" className="h-12 rounded-xl" /><Button className="h-11 rounded-xl" onClick={() => void connectMaimemo()} disabled={maimemoLoading}>{maimemoLoading && <Loader2 className="size-4 animate-spin" />}连接</Button></>}
-                {maimemoConnected && <AlertDialog><AlertDialogTrigger asChild><Button variant="outline" className="rounded-xl text-destructive"><Unlink className="size-4" />断开</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>断开墨墨连接？</AlertDialogTitle><AlertDialogDescription>已同步的单词不受影响。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void disconnectMaimemo()}>断开</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}
-              </DialogContent></Dialog>
+            <DailyPicks onOpen={openPicked} />
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
               <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
                 <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">TXT / DOCX</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
@@ -893,7 +891,22 @@ export default function Home() {
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
             <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
-            <AccountDialog />
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="relative rounded-xl" aria-label="设置" title="设置"><Settings className="size-4" /></Button></DialogTrigger>
+              <DialogContent className="settings-dialog max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">设置</DialogTitle><DialogDescription className="sr-only">DeepSeek、墨墨背单词和账户</DialogDescription></DialogHeader>
+                <section className="settings-section" id="settings-deepseek"><h3><Sparkles className="size-4" />DeepSeek{deepseekConnected && <span className="settings-state">已连接</span>}</h3>
+                {!deepseekConnected && <a className="token-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">获取 API Key <ExternalLink className="size-4" /></a>}
+                {aiConnected && !deepseekConnected && <p className="security-note">请重新填写 API Key</p>}
+                <label className="ai-field">联想模式<select className="ai-mode-select" value={aiThinkingMode} onChange={(event) => setAiThinkingMode(event.target.value as "disabled" | "enabled")}><option value="disabled">快速</option><option value="enabled">深度思考</option></select></label>
+                <label className="ai-field">API Key<Input type="password" autoComplete="off" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder={deepseekConnected ? "留空则不变" : "粘贴 API Key"} className="mt-1 h-11 rounded-xl" /></label>
+                <Button className="rounded-xl" disabled={aiLoading} onClick={() => void connectAi()}>{aiLoading && <Loader2 className="size-4 animate-spin" />}保存</Button>
+                {aiConnected && <Button variant="outline" className="rounded-xl text-destructive" disabled={aiLoading} onClick={() => void disconnectAi()}><Unlink className="size-4" />断开</Button>}
+                </section>
+                <section className="settings-section" id="settings-maimemo"><h3><Cloud className="size-4" />墨墨背单词{maimemoConnected && <span className="settings-state">已连接</span>}</h3>
+                {!maimemoConnected && <><a className="token-link" href="https://open.maimemo.com/open/api/v1/tokens/openapi" target="_blank" rel="noreferrer">获取凭证 <ExternalLink className="size-4" /></a><Input type="password" autoComplete="off" value={maimemoToken} onChange={(event) => setMaimemoToken(event.target.value)} placeholder="粘贴凭证" className="h-12 rounded-xl" /><Button className="h-11 rounded-xl" onClick={() => void connectMaimemo()} disabled={maimemoLoading}>{maimemoLoading && <Loader2 className="size-4 animate-spin" />}连接</Button></>}
+                {maimemoConnected && <AlertDialog><AlertDialogTrigger asChild><Button variant="outline" className="rounded-xl text-destructive"><Unlink className="size-4" />断开</Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>断开墨墨连接？</AlertDialogTitle><AlertDialogDescription>已同步的单词不受影响。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction onClick={() => void disconnectMaimemo()}>断开</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}
+                </section>
+                <AccountSection />
+              </DialogContent></Dialog>
           </div>
         </header>
 

@@ -185,7 +185,9 @@ async function handleConnector(request, env, context, url, token) {
         protocolVersion: mcpVersions.includes(requested) ? requested : mcpVersions[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "gist-daily-import", title: "Gist 每日文章导入", version: "1.1.0" },
-        instructions: "Use import_daily_article to save one English article per day to Gist. title = the original headline exactly as published; content = the article body only (no captions, photo credits, related links, newsletter prompts or ads), copied verbatim with a blank line between paragraphs and subheadings on their own lines; publisher = the publication name; publishedDate = the original publication date (YYYY-MM-DD); sourceUrl = the canonical https link without tracking parameters. If the result is already_imported_today, stop. If it is duplicate_article, choose a different article.",
+        instructions: (account.ownerId === adminOwnerId
+          ? "Use import_daily_article to add 5 different English articles a day to Gist's shared daily list, one call per article; readers then choose which ones to read. Stop when the result is list_full_today. "
+          : "Use import_daily_article to save one English article per day to Gist. ") + "title = the original headline exactly as published; content = the article body only (no captions, photo credits, related links, newsletter prompts or ads), copied verbatim with a blank line between paragraphs and subheadings on their own lines; publisher = the publication name; publishedDate = the original publication date (YYYY-MM-DD); sourceUrl = the canonical https link without tracking parameters. If the result is already_imported_today, stop. If it is duplicate_article, choose a different article.",
       });
     }
     case "ping":
