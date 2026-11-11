@@ -3,16 +3,24 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { RotateCcw, X } from "lucide-react";
+import { recallNow, type Grade } from "@/lib/srs";
 
-export type WallWord = { id: number; text: string; translation: string; reviewedAt?: string | null };
+export type WallWord = { id: number; text: string; translation: string; reviewedAt?: string | null; stability?: number | null; difficulty?: number | null };
 
 const DECK_SIZE = 30;
+const TARGET_RECALL = 0.9;
 
-// A round is at most 30 cards: words never turned over come first, then the ones turned over longest ago.
+// Pick the next round with the memory model: first the words most likely being forgotten
+// (predicted recall below 90%, lowest first), then words never turned over, then the rest by recall.
 function pickDeck(pool: WallWord[], skip: Set<number>) {
   const fresh = pool.filter((word) => !skip.has(word.id));
   const source = fresh.length ? fresh : pool;
-  return [...source].sort((a, b) => (a.reviewedAt ?? "").localeCompare(b.reviewedAt ?? "") || ((a.id * 2654435761) % 997) - ((b.id * 2654435761) % 997)).slice(0, DECK_SIZE);
+  const now = Date.now();
+  const scored = source.map((word, order) => ({ word, order, recall: recallNow({ stability: word.stability ?? null, difficulty: word.difficulty ?? null, reviewedAt: word.reviewedAt ?? null }, now) }));
+  const due = scored.filter((item) => item.recall !== null && item.recall < TARGET_RECALL).sort((a, b) => (a.recall ?? 0) - (b.recall ?? 0));
+  const unseen = scored.filter((item) => item.recall === null).sort((a, b) => a.order - b.order);
+  const known = scored.filter((item) => item.recall !== null && item.recall >= TARGET_RECALL).sort((a, b) => (a.recall ?? 0) - (b.recall ?? 0));
+  return [...due, ...unseen, ...known].slice(0, DECK_SIZE).map((item) => item.word);
 }
 
 type Phase = "flip" | "fall" | "play" | "deal" | "rebuild";
@@ -122,7 +130,7 @@ function tweenAll(items: { el: HTMLElement; from: Pose; to: Pose; delay: number;
   });
 }
 
-export function WordWall({ pool, onReview, onClose }: { pool: WallWord[]; onReview: (id: number) => void; onClose: () => void }) {
+export function WordWall({ pool, onReview, onClose }: { pool: WallWord[]; onReview: (id: number, grade: Grade) => void; onClose: () => void }) {
   const [deck, setDeck] = useState(() => pickDeck(pool, new Set()));
   const words = deck;
   const reviewed = useRef(new Set<number>());
@@ -370,12 +378,14 @@ export function WordWall({ pool, onReview, onClose }: { pool: WallWord[]; onRevi
     if (!lifted.zh) { setLifted({ id, zh: true }); return; }
     setPassed((n) => n + 1);
     reviewed.current.add(id);
-    onReview(id);
+    onReview(id, "good");
     toPile(id);
   }
 
   function tapBackdrop() {
     if (!lifted || busy.current) return;
+    // Looked at the answer and put it back: counts as not remembered.
+    if (lifted.zh) onReview(lifted.id, "again");
     putBack(lifted.id);
   }
 

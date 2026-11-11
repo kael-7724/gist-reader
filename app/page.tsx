@@ -20,7 +20,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 type Article = { id: number; title: string; shortTitle?: string; content: string; createdAt: string; translationStatus?: "pending" | "processing" | "ready" | "failed"; translationProvider?: string; translationError?: string | null; translatedAt?: string | null };
 type RelatedWord = { word: string; translation: string };
-type SavedWord = { id: number; articleId?: number | null; text: string; translation: string; context: string; articleTitle: string; createdAt: string; maimemoVocId?: string | null; syncStatus?: "pending" | "synced" | "failed"; syncError?: string | null; syncedAt?: string | null; similarJson?: string | null; lookalikeJson?: string | null; reviewedAt?: string | null; reviewCount?: number };
+type SavedWord = { id: number; articleId?: number | null; text: string; translation: string; context: string; articleTitle: string; createdAt: string; maimemoVocId?: string | null; syncStatus?: "pending" | "synced" | "failed"; syncError?: string | null; syncedAt?: string | null; similarJson?: string | null; lookalikeJson?: string | null; reviewedAt?: string | null; reviewCount?: number; srsStability?: number | null; srsDifficulty?: number | null };
 type SavedSentence = { id: number; articleId?: number | null; text: string; translation: string; articleTitle: string; createdAt: string };
 type SelectionKind = "word" | "phrase" | "sentence";
 type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean; saved?: boolean };
@@ -279,11 +279,11 @@ export default function Home() {
     try { if (localStorage.getItem("gist-mark-mode") === "on") queueMicrotask(() => setMarkMode(true)); } catch { /* Device preference only. */ }
   }, []);
 
-  async function markReviewed(id: number) {
-    const response = await fetch("/api/library", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "review", id }) });
+  async function markReviewed(id: number, grade: "again" | "good") {
+    const response = await fetch("/api/library", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "review", id, grade }) });
     if (!response.ok) return;
-    const data = await json<{ reviewedAt: string; reviewCount: number }>(response);
-    setWords((items) => items.map((item) => item.id === id ? { ...item, reviewedAt: data.reviewedAt, reviewCount: data.reviewCount } : item));
+    const data = await json<{ reviewedAt: string; reviewCount: number; srsStability: number; srsDifficulty: number }>(response);
+    setWords((items) => items.map((item) => item.id === id ? { ...item, ...data } : item));
   }
 
   function toggleMarkMode() {
@@ -809,7 +809,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       <Toaster position="top-center" theme="dark" />
-      {wallOpen && <WordWall pool={filteredWords.map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null }))} onReview={(id) => void markReviewed(id)} onClose={() => setWallOpen(false)} />}
+      {wallOpen && <WordWall pool={filteredWords.map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">
           <TabsList className="reader-tabs" aria-label="页面导航">

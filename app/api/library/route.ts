@@ -1,5 +1,6 @@
 import { database, message, ownerId } from "@/lib/site-data";
 import { lemmatizeEnglishWord } from "@/lib/english-lemma";
+import { nextState, type Grade, type SrsState } from "@/lib/srs";
 import { cleanShortTitle } from "@/lib/short-title";
 
 // A phrase is stored in the word book in lower case, without surrounding punctuation.
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
       db.prepare("SELECT id, title, short_title AS shortTitle, content, translation_status AS translationStatus, translation_provider AS translationProvider, translation_error AS translationError, translated_at AS translatedAt, created_at AS createdAt FROM articles WHERE owner_id = ? ORDER BY created_at DESC, id DESC").bind(owner).all(),
       db.prepare(`SELECT w.id, w.article_id AS articleId, w.text, w.translation, w.context, w.article_title AS articleTitle,
         w.maimemo_voc_id AS maimemoVocId, w.sync_status AS syncStatus, w.sync_error AS syncError,
-        w.synced_at AS syncedAt, w.created_at AS createdAt, w.reviewed_at AS reviewedAt, w.review_count AS reviewCount, e.similar_json AS similarJson, e.lookalike_json AS lookalikeJson
+        w.synced_at AS syncedAt, w.created_at AS createdAt, w.reviewed_at AS reviewedAt, w.review_count AS reviewCount, w.srs_stability AS srsStability, w.srs_difficulty AS srsDifficulty, e.similar_json AS similarJson, e.lookalike_json AS lookalikeJson
         FROM saved_words w LEFT JOIN word_ai_enrichments e ON e.owner_id = w.owner_id AND e.word = w.text
         WHERE w.owner_id = ? ORDER BY w.sort_order DESC, w.created_at DESC, w.id DESC`).bind(owner).all(),
       db.prepare("SELECT id, article_id AS articleId, text, translation, article_title AS articleTitle, created_at AS createdAt FROM saved_sentences WHERE owner_id = ? ORDER BY created_at DESC, id DESC").bind(owner).all(),
@@ -76,7 +77,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const owner = ownerId(request);
-    const body = await request.json() as { id?: number; action?: string; shortTitle?: string };
+    const body = await request.json() as { id?: number; action?: string; shortTitle?: string; grade?: string };
     const { id } = body;
     if (!Number.isInteger(id) || !id || id < 1) return Response.json({ error: "编号无效" }, { status: 400 });
     const db = database();
@@ -87,8 +88,11 @@ export async function PATCH(request: Request) {
       return Response.json(updated);
     }
     if (body.action === "review") {
-      const reviewed = await db.prepare("UPDATE saved_words SET reviewed_at = CURRENT_TIMESTAMP, review_count = review_count + 1 WHERE owner_id = ? AND id = ? RETURNING reviewed_at AS reviewedAt, review_count AS reviewCount").bind(owner, id).first();
-      if (!reviewed) return Response.json({ error: "没有找到这个单词" }, { status: 404 });
+      const grade: Grade = body.grade === "again" ? "again" : "good";
+      const current = await db.prepare("SELECT srs_stability AS stability, srs_difficulty AS difficulty, reviewed_at AS reviewedAt FROM saved_words WHERE owner_id = ? AND id = ?").bind(owner, id).first<SrsState>();
+      if (!current) return Response.json({ error: "没有找到这个单词" }, { status: 404 });
+      const next = nextState(current, grade);
+      const reviewed = await db.prepare("UPDATE saved_words SET srs_stability = ?, srs_difficulty = ?, srs_lapses = srs_lapses + ?, reviewed_at = CURRENT_TIMESTAMP, review_count = review_count + 1 WHERE owner_id = ? AND id = ? RETURNING reviewed_at AS reviewedAt, review_count AS reviewCount, srs_stability AS srsStability, srs_difficulty AS srsDifficulty").bind(next.stability, next.difficulty, grade === "again" ? 1 : 0, owner, id).first();
       return Response.json(reviewed);
     }
     const result = await db.prepare("UPDATE saved_words SET sort_order = (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM saved_words WHERE owner_id = ?) WHERE owner_id = ? AND id = ? RETURNING id").bind(owner, owner, id).first();
