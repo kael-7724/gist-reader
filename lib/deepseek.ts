@@ -1,13 +1,11 @@
 import { validateAiEndpoint } from "@/lib/ai";
 import { decryptSecret } from "@/lib/secret-crypto";
-import { database } from "@/lib/site-data";
+import { aiConnectionFor } from "@/lib/ai-connection";
 
-type Connection = { endpoint: string; encryptedApiKey: string; apiKeyIv: string };
 type TranslationKind = "word" | "phrase" | "sentence";
 
 async function credentials(request: Request, owner: string) {
-  const row = await database().prepare("SELECT endpoint, encrypted_api_key AS encryptedApiKey, api_key_iv AS apiKeyIv FROM ai_connections WHERE owner_id = ?")
-    .bind(owner).first<Connection>();
+  const row = await aiConnectionFor(owner);
   if (!row) throw new Error("请先连接 DeepSeek API");
   const endpoint = validateAiEndpoint(row.endpoint);
   const url = new URL(endpoint);

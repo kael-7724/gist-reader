@@ -1,5 +1,5 @@
 import { decryptSecret } from "@/lib/secret-crypto";
-import { database } from "@/lib/site-data";
+import { aiConnectionFor } from "@/lib/ai-connection";
 
 export type RelatedWord = { word: string; translation: string };
 export type WordEnrichment = { similar: RelatedWord[]; lookalike: RelatedWord[] };
@@ -32,8 +32,7 @@ function parseRelated(value: unknown, source: string): RelatedWord[] {
 }
 
 export async function generateWordEnrichment(request: Request, owner: string, word: string, translation: string): Promise<WordEnrichment> {
-  const connection = await database().prepare("SELECT endpoint, model, thinking_mode AS thinkingMode, encrypted_api_key AS encryptedApiKey, api_key_iv AS apiKeyIv FROM ai_connections WHERE owner_id = ?")
-    .bind(owner).first<{ endpoint: string; model: string; thinkingMode: string; encryptedApiKey: string; apiKeyIv: string }>();
+  const connection = await aiConnectionFor(owner);
   if (!connection) throw new Error("请先连接大模型接口");
   const endpoint = validateAiEndpoint(connection.endpoint);
   const key = await decryptSecret(request, connection.encryptedApiKey, connection.apiKeyIv);

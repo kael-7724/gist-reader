@@ -1,10 +1,14 @@
 import { encryptSecret } from "@/lib/secret-crypto";
+import { DEEPSEEK_ENDPOINT, DEEPSEEK_MODEL, readSharedSetting } from "@/lib/ai-connection";
 import { database, message, ownerId } from "@/lib/site-data";
 
 export async function GET(request: Request) {
   try {
     const row = await database().prepare("SELECT endpoint, model, thinking_mode AS thinkingMode, connected_at AS connectedAt FROM ai_connections WHERE owner_id = ?").bind(ownerId(request)).first();
-    return Response.json(row ? { connected: true, ...row } : { connected: false });
+    if (row) return Response.json({ connected: true, ...row });
+    // No key of its own: the account uses the shared key from /admin, if there is one.
+    if (await readSharedSetting()) return Response.json({ connected: true, shared: true, endpoint: DEEPSEEK_ENDPOINT, model: DEEPSEEK_MODEL, thinkingMode: "disabled" });
+    return Response.json({ connected: false });
   } catch (error) { return Response.json({ error: message(error) }, { status: 500 }); }
 }
 

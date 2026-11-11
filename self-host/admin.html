@@ -56,6 +56,18 @@
   </section>
 
   <section>
+    <h2>共享 DeepSeek Key</h2>
+    <p class="hint" id="shared-state">加载中…</p>
+    <form id="shared">
+      <input id="shared-key" type="password" placeholder="粘贴 DeepSeek API Key（sk- 开头）" autocomplete="off">
+      <button class="primary" type="submit">保存</button>
+    </form>
+    <div class="hint">没有填自己 Key 的账号都会用这个 Key 翻译和生成联想，费用从这个 Key 的余额里扣。朋友填了自己的 Key 后就改用他自己的。</div>
+    <div class="hint error" id="shared-error"></div>
+    <button id="shared-remove" type="button" style="display:none">移除共享 Key</button>
+  </section>
+
+  <section>
     <h2>朋友的账号</h2>
     <div id="list"><div class="empty">加载中…</div></div>
   </section>
@@ -87,6 +99,39 @@ ${site}/connector/${user.importToken}/mcp`;
   $("result").style.display = "block";
   $("result").scrollIntoView({ behavior: "smooth" });
 }
+
+async function sharedApi(method, body) {
+  const res = await fetch("/api/ai/shared", { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({ error: "请求失败" }));
+  if (!res.ok) throw new Error(data.error || "请求失败");
+  return data;
+}
+
+function showShared(data) {
+  $("shared-state").textContent = data.configured
+    ? `已设置：sk-…${data.last4}（${new Date(data.setAt).toLocaleString("zh-CN", { dateStyle: "medium", timeStyle: "short" })}）`
+    : "还没有设置。新账号需要自己填 Key 才能翻译。";
+  $("shared-remove").style.display = data.configured ? "inline-block" : "none";
+}
+
+sharedApi("GET").then(showShared).catch((e) => { $("shared-state").textContent = e.message; });
+
+$("shared").onsubmit = async (event) => {
+  event.preventDefault();
+  $("shared-error").textContent = "";
+  const button = event.submitter;
+  button.disabled = true; button.textContent = "验证中…";
+  try {
+    showShared(await sharedApi("PUT", { apiKey: $("shared-key").value }));
+    $("shared-key").value = "";
+  } catch (e) { $("shared-error").textContent = e.message; }
+  finally { button.disabled = false; button.textContent = "保存"; }
+};
+
+$("shared-remove").onclick = async () => {
+  if (!confirm("移除共享 Key？没有自己 Key 的账号将不能翻译。")) return;
+  try { showShared(await sharedApi("DELETE")); } catch (e) { alert(e.message); }
+};
 
 $("copy").onclick = async () => {
   try { await navigator.clipboard.writeText($("result-text").textContent); $("copy").textContent = "已复制"; }

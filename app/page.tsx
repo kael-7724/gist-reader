@@ -147,6 +147,7 @@ export default function Home() {
   const [readingOpen, setReadingOpen] = useState(false);
   const [readingSettings, setReadingSettings] = useState<ReadingSettings>(defaultReadingSettings);
   const [aiConnected, setAiConnected] = useState(false);
+  const [aiShared, setAiShared] = useState(false);
   const [aiEndpoint, setAiEndpoint] = useState("https://api.deepseek.com/chat/completions");
   const [aiModel, setAiModel] = useState("deepseek-flash");
   const [aiApiKey, setAiApiKey] = useState("");
@@ -359,7 +360,7 @@ export default function Home() {
       setWords(Array.isArray(data.words) ? data.words : []); setSentences(Array.isArray(data.sentences) ? data.sentences : []);
     }).catch(() => undefined);
     fetch("/api/maimemo/connection").then((response) => response.ok ? json<{ connected: boolean }>(response) : Promise.reject()).then((data) => setMaimemoConnected(Boolean(data.connected))).catch(() => undefined);
-    fetch("/api/ai/connection").then((response) => response.ok ? json<{ connected: boolean; endpoint?: string; model?: string; thinkingMode?: string }>(response) : Promise.reject()).then((data) => { setAiConnected(Boolean(data.connected)); if (data.endpoint) setAiEndpoint(data.endpoint); if (data.model) setAiModel(data.model); if (data.thinkingMode === "enabled") setAiThinkingMode("enabled"); }).catch(() => undefined);
+    fetch("/api/ai/connection").then((response) => response.ok ? json<{ connected: boolean; shared?: boolean; endpoint?: string; model?: string; thinkingMode?: string }>(response) : Promise.reject()).then((data) => { setAiConnected(Boolean(data.connected)); setAiShared(Boolean(data.shared)); if (data.endpoint) setAiEndpoint(data.endpoint); if (data.model) setAiModel(data.model); if (data.thinkingMode === "enabled") setAiThinkingMode("enabled"); }).catch(() => undefined);
   }, []);
 
   async function requestTranslation(text: string, type: SelectionKind, context: string, articleId: number) {
@@ -673,13 +674,13 @@ export default function Home() {
   }
 
   async function connectAi() {
-    if (!deepseekConnected && !aiApiKey.trim()) return toast.error("请填写 DeepSeek API Key");
+    if ((!deepseekConnected || aiShared) && !aiApiKey.trim()) return toast.error("请填写你自己的 DeepSeek API Key");
     setAiLoading(true);
     try {
       const response = await fetch("/api/ai/connection", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-flash", apiKey: aiApiKey, thinkingMode: aiThinkingMode }) });
       const data = await json<{ error?: string; endpoint?: string; model?: string }>(response);
       if (!response.ok) throw new Error(data.error || "保存 AI 连接失败");
-      setAiConnected(true); setAiEndpoint(data.endpoint || aiEndpoint); setAiModel(data.model || aiModel); setAiApiKey("");
+      setAiConnected(true); setAiShared(false); setAiEndpoint(data.endpoint || aiEndpoint); setAiModel(data.model || aiModel); setAiApiKey("");
       toast.success("DeepSeek 已连接，可以翻译和生成词汇联想");
     } catch (error) { toast.error(error instanceof Error ? error.message : "保存 AI 连接失败"); }
     finally { setAiLoading(false); }
@@ -690,7 +691,12 @@ export default function Home() {
     try {
       const response = await fetch("/api/ai/connection", { method: "DELETE" });
       if (!response.ok) throw new Error();
-      setAiConnected(false); setAiApiKey(""); toast.success("已断开 AI 接口，已生成的词汇联想仍会保留");
+      setAiApiKey("");
+      // Falls back to the shared key from /admin when there is one.
+      const state = await fetch("/api/ai/connection").then((result) => result.ok ? json<{ connected?: boolean; shared?: boolean; thinkingMode?: string }>(result) : null).catch(() => null);
+      setAiConnected(Boolean(state?.connected)); setAiShared(Boolean(state?.shared)); setAiEndpoint("https://api.deepseek.com/chat/completions"); setAiModel("deepseek-flash");
+      if (state?.shared) setAiThinkingMode("disabled");
+      toast.success(state?.shared ? "已断开你自己的 Key，改用共享 Key" : "已断开 AI 接口，已生成的词汇联想仍会保留");
     } catch { toast.error("断开 AI 接口失败"); }
     finally { setAiLoading(false); }
   }
@@ -893,13 +899,14 @@ export default function Home() {
             <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
             <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="relative rounded-xl" aria-label="设置" title="设置"><Settings className="size-4" /></Button></DialogTrigger>
               <DialogContent className="settings-dialog max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">设置</DialogTitle><DialogDescription className="sr-only">DeepSeek、墨墨背单词和账户</DialogDescription></DialogHeader>
-                <section className="settings-section" id="settings-deepseek"><h3><Sparkles className="size-4" />DeepSeek{deepseekConnected && <span className="settings-state">已连接</span>}</h3>
-                {!deepseekConnected && <a className="token-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">获取 API Key <ExternalLink className="size-4" /></a>}
+                <section className="settings-section" id="settings-deepseek"><h3><Sparkles className="size-4" />DeepSeek{deepseekConnected && <span className="settings-state">{aiShared ? "使用共享 Key" : "已连接"}</span>}</h3>
+                {aiShared && <p className="security-note">现在用的是管理员共享的 Key，可以直接划词翻译。填入你自己的 Key 并保存后，就改用你自己的额度。</p>}
+                {(!deepseekConnected || aiShared) && <a className="token-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">获取 API Key <ExternalLink className="size-4" /></a>}
                 {aiConnected && !deepseekConnected && <p className="security-note">请重新填写 API Key</p>}
-                <label className="ai-field">联想模式<select className="ai-mode-select" value={aiThinkingMode} onChange={(event) => setAiThinkingMode(event.target.value as "disabled" | "enabled")}><option value="disabled">快速</option><option value="enabled">深度思考</option></select></label>
-                <label className="ai-field">API Key<Input type="password" autoComplete="off" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder={deepseekConnected ? "留空则不变" : "粘贴 API Key"} className="mt-1 h-11 rounded-xl" /></label>
+                {!aiShared && <label className="ai-field">联想模式<select className="ai-mode-select" value={aiThinkingMode} onChange={(event) => setAiThinkingMode(event.target.value as "disabled" | "enabled")}><option value="disabled">快速</option><option value="enabled">深度思考</option></select></label>}
+                <label className="ai-field">API Key<Input type="password" autoComplete="off" value={aiApiKey} onChange={(event) => setAiApiKey(event.target.value)} placeholder={aiShared ? "粘贴你自己的 API Key" : deepseekConnected ? "留空则不变" : "粘贴 API Key"} className="mt-1 h-11 rounded-xl" /></label>
                 <Button className="rounded-xl" disabled={aiLoading} onClick={() => void connectAi()}>{aiLoading && <Loader2 className="size-4 animate-spin" />}保存</Button>
-                {aiConnected && <Button variant="outline" className="rounded-xl text-destructive" disabled={aiLoading} onClick={() => void disconnectAi()}><Unlink className="size-4" />断开</Button>}
+                {aiConnected && !aiShared && <Button variant="outline" className="rounded-xl text-destructive" disabled={aiLoading} onClick={() => void disconnectAi()}><Unlink className="size-4" />断开</Button>}
                 </section>
                 <section className="settings-section" id="settings-maimemo"><h3><Cloud className="size-4" />墨墨背单词{maimemoConnected && <span className="settings-state">已连接</span>}</h3>
                 {!maimemoConnected && <><a className="token-link" href="https://open.maimemo.com/open/api/v1/tokens/openapi" target="_blank" rel="noreferrer">获取凭证 <ExternalLink className="size-4" /></a><Input type="password" autoComplete="off" value={maimemoToken} onChange={(event) => setMaimemoToken(event.target.value)} placeholder="粘贴凭证" className="h-12 rounded-xl" /><Button className="h-11 rounded-xl" onClick={() => void connectMaimemo()} disabled={maimemoLoading}>{maimemoLoading && <Loader2 className="size-4 animate-spin" />}连接</Button></>}
