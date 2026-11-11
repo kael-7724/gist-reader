@@ -6,48 +6,80 @@ import { Check, RotateCcw, Undo2, X } from "lucide-react";
 
 export type WallWord = { id: number; text: string; translation: string };
 
-type Phase = "flip" | "fall" | "play" | "rebuild" | "unflip";
+type Phase = "flip" | "fall" | "play" | "deal" | "rebuild";
 type Box = { left: number; top: number; width: number; height: number };
 type Spot = { x: number; y: number; r: number; s: number };
 type Lifted = { id: number; zh: boolean } | null;
+type Side = "back" | "front";
+// A card's look on screen: centre, rotation, scale, and its visible height and corner radius in px.
+type Pose = { x: number; y: number; r: number; s: number; h: number; rad: number; o: number };
 
-// Every card is drawn at this size and scaled with transforms, so a picked-up card is crisp.
 const W0 = 280;
 const H0 = 180;
-const FLIP = "perspective(1000px) rotateY(";
+const TABLE_RADIUS = 22;
+const P = "perspective(720px) rotateY(";
+const EASE_IN = "cubic-bezier(.55,0,.9,.55)";
+const EASE_OUT = "cubic-bezier(.12,.6,.3,1)";
+const GLIDE = "cubic-bezier(.22,1,.36,1)";
 
-const tf = (x: number, y: number, r: number, sx: number, sy = sx) => `translate3d(${x - W0 / 2}px, ${y - H0 / 2}px, 0) rotate(${r}deg) scale(${sx}, ${sy})`;
-const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+const tf = (x: number, y: number, r: number, s: number) => `translate3d(${(x - W0 / 2).toFixed(2)}px, ${(y - H0 / 2).toFixed(2)}px, 0) rotate(${r.toFixed(2)}deg) scale(${s.toFixed(4)})`;
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;
+const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
-function animate(el: Element, frames: Keyframe[], options: KeyframeAnimationOptions) {
+function animate(el: Element | undefined | null, frames: Keyframe[], options: KeyframeAnimationOptions, commit = true) {
+  if (!el) return Promise.resolve();
   el.getAnimations().forEach((running) => { try { running.commitStyles(); } catch { /* detached */ } running.cancel(); });
   const animation = el.animate(frames, { fill: "forwards", ...options });
-  return animation.finished.then(() => { try { animation.commitStyles(); } catch { /* detached */ } animation.cancel(); }).catch(() => undefined);
+  return animation.finished.then(() => {
+    if (!commit) return;
+    try { animation.commitStyles(); } catch { /* detached */ }
+    animation.cancel();
+  }).catch(() => undefined);
 }
 
-function gridCard(id: number) {
-  return document.querySelector<HTMLElement>(`.word-grid [data-word-card-id="${id}"]`);
+function setInstant(el: HTMLElement, transform: string) {
+  el.style.transition = "none";
+  el.style.transform = transform;
+  void el.offsetWidth;
+  el.style.transition = "";
 }
+
+// The card is always scaled uniformly; its face height, edge and corners are set in base px so they look the same at any scale.
+function applyPose(el: HTMLElement, pose: Pose) {
+  el.style.transform = tf(pose.x, pose.y, pose.r, pose.s);
+  el.style.setProperty("--fh", `${(pose.h / pose.s).toFixed(2)}px`);
+  el.style.setProperty("--edge", `${(1 / pose.s).toFixed(3)}px`);
+  el.style.setProperty("--rad", `${(pose.rad / pose.s).toFixed(2)}px`);
+  el.style.opacity = String(pose.o);
+}
+
+const mix = (a: Pose, b: Pose, t: number): Pose => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), r: lerp(a.r, b.r, t), s: lerp(a.s, b.s, t), h: lerp(a.h, b.h, t), rad: lerp(a.rad, b.rad, t), o: lerp(a.o, b.o, t) });
+const tablePose = (x: number, y: number, r: number, s: number, o = 1): Pose => ({ x, y, r, s, h: H0 * s, rad: TABLE_RADIUS * s, o });
+
+const gridCard = (id: number) => document.querySelector<HTMLElement>(`.word-grid [data-word-card-id="${id}"]`);
 
 function measureStage(): Box {
   const content = document.querySelector(".content")?.getBoundingClientRect();
   return content ? { left: content.left, top: content.top, width: content.width, height: content.height } : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
 }
 
-function visibleRect(id: number, stage: Box) {
-  const rect = gridCard(id)?.getBoundingClientRect();
-  if (!rect || rect.width === 0 || rect.bottom < stage.top || rect.top > stage.top + stage.height) return null;
-  return rect;
+function wallPose(id: number, stage: Box): Pose | null {
+  const card = gridCard(id);
+  const rect = card?.getBoundingClientRect();
+  if (!card || !rect || rect.width === 0 || rect.bottom < stage.top + 4 || rect.top > stage.top + stage.height - 4) return null;
+  const s = rect.width / W0;
+  return { x: rect.left - stage.left + rect.width / 2, y: rect.top - stage.top + rect.height / 2, r: 0, s, h: rect.height, rad: parseFloat(getComputedStyle(card).borderTopLeftRadius) || 14, o: 1 };
 }
 
-// Spread the cards over the table: a jittered grid, so most of each card stays visible.
 function scatter(count: number, stage: Box): Spot[] {
   const s = stage.width < 640 ? 0.33 : 0.42;
   const w = W0 * s;
   const h = H0 * s;
   const pad = 14;
-  const top = 64;
+  const top = 66;
   const areaW = Math.max(w, stage.width - pad * 2 - w);
   const areaH = Math.max(h, stage.height - top - pad - h);
   const cols = Math.max(1, Math.ceil(Math.sqrt(count * areaW / areaH)));
@@ -57,135 +89,214 @@ function scatter(count: number, stage: Box): Spot[] {
     const cell = cells[i];
     const cw = areaW / cols;
     const ch = areaH / rows;
-    return {
-      x: pad + w / 2 + (cell % cols + 0.5) * cw + rand(-0.42, 0.42) * cw,
-      y: top + h / 2 + (Math.floor(cell / cols) + 0.5) * ch + rand(-0.42, 0.42) * ch,
-      r: rand(-26, 26),
-      s,
+    return { x: pad + w / 2 + (cell % cols + 0.5 + rand(-0.4, 0.4)) * cw, y: top + h / 2 + (Math.floor(cell / cols) + 0.5 + rand(-0.4, 0.4)) * ch, r: rand(-24, 24), s };
+  });
+}
+
+// Runs many card tweens in one animation frame loop.
+function tweenAll(items: { el: HTMLElement; from: Pose; to: Pose; delay: number; duration: number; ease: (t: number) => number; done?: () => void }[]) {
+  return new Promise<void>((resolve) => {
+    const begin = performance.now();
+    const finished = new Set<number>();
+    const step = (now: number) => {
+      const t = now - begin;
+      items.forEach((item, i) => {
+        if (finished.has(i) || t < item.delay) return;
+        const k = Math.min(1, (t - item.delay) / item.duration);
+        applyPose(item.el, mix(item.from, item.to, item.ease(k)));
+        if (k >= 1) { finished.add(i); item.done?.(); }
+      });
+      if (finished.size < items.length) requestAnimationFrame(step);
+      else resolve();
     };
+    requestAnimationFrame(step);
   });
 }
 
 export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () => void }) {
   const [stage] = useState(measureStage);
-  const [rects, setRects] = useState(() => { const box = measureStage(); return new Map(words.map((word) => [word.id, visibleRect(word.id, box)] as const)); });
+  const [walls] = useState(() => { const box = measureStage(); return new Map(words.map((word) => [word.id, wallPose(word.id, box)] as const)); });
   const [phase, setPhase] = useState<Phase>("flip");
   const [gone, setGone] = useState<Set<number>>(() => new Set());
   const [passed, setPassed] = useState(0);
   const [lifted, setLifted] = useState<Lifted>(null);
   const [hint, setHint] = useState(true);
-  const [mounted, setMounted] = useState(false);
-  const stageRef = useRef<HTMLDivElement | null>(null);
   const counterRef = useRef<HTMLSpanElement | null>(null);
   const tokens = useRef(new Map<number, HTMLButtonElement>());
-  const flips = useRef(new Map<number, HTMLSpanElement>());
-  const angles = useRef(new Map<number, number>());
-  const clones = useRef(new Map<number, HTMLDivElement>());
+  const backs = useRef(new Map<number, HTMLSpanElement>());
+  const fronts = useRef(new Map<number, HTMLSpanElement>());
+  const sides = useRef(new Map<number, Side>());
   const spots = useRef(new Map<number, Spot>());
-  const zTop = useRef(words.length + 1);
+  const zTop = useRef(words.length + 10);
   const busy = useRef(true);
   const drag = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
   const reduce = useRef(false);
   const ms = (value: number) => (reduce.current ? 1 : value);
 
-  useEffect(() => { queueMicrotask(() => setMounted(true)); }, []);
-
-  // 1. The visible cards turn face down, wave by wave.
-  useLayoutEffect(() => {
-    if (phase !== "flip" && phase !== "unflip") return;
-    reduce.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const entering = phase === "flip";
-    if (entering) document.body.classList.add("ww-active");
-    const jobs: Promise<unknown>[] = [];
-    clones.current.forEach((inner, id) => {
-      const rect = rects.get(id);
-      if (!rect) return;
-      const wave = ((rect.left - stage.left) / stage.width + (rect.top - stage.top) / stage.height) / 2;
-      const from = entering ? 0 : 180;
-      inner.style.transform = `rotateY(${from}deg)`;
-      jobs.push(animate(inner, [{ transform: `rotateY(${from}deg)` }, { transform: `rotateY(${180 - from}deg)` }], { duration: ms(560), delay: ms(wave * 460), easing: "cubic-bezier(.45,0,.2,1)" }));
-    });
-    let cancelled = false;
-    void Promise.all(jobs).then(() => wait(ms(entering ? 140 : 60))).then(() => {
-      if (cancelled) return;
-      if (entering) setPhase("fall");
-      else onClose();
-    });
-    return () => { cancelled = true; };
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => () => document.body.classList.remove("ww-active"), []);
-
-  // 2. The wall gives way: bottom rows first, every card tumbles to a spot on the table.
-  useLayoutEffect(() => {
-    if (phase !== "fall") return;
-    const placed = scatter(words.length, stage);
-    let longest = 0;
-    void stageRef.current?.animate([
-      { transform: "translate(0,0)" }, { transform: "translate(-2px,1px)" }, { transform: "translate(2px,-1px)" },
-      { transform: "translate(-1px,0)" }, { transform: "translate(0,0)" },
-    ], { duration: ms(260) });
-    words.forEach((word, i) => {
-      const el = tokens.current.get(word.id);
-      const flip = flips.current.get(word.id);
-      if (!el || !flip) return;
-      const spot = placed[i];
-      spots.current.set(word.id, spot);
-      angles.current.set(word.id, 180);
-      flip.style.transform = `${FLIP}180deg)`;
-      el.style.zIndex = String(1 + Math.floor(Math.random() * words.length));
-      const end = tf(spot.x, spot.y, spot.r, spot.s);
-      const bounce = Math.sign(spot.r || 1);
-      const rect = rects.get(word.id);
-      let frames: Keyframe[];
-      let delay: number;
-      if (rect) {
-        const cx = rect.left - stage.left + rect.width / 2;
-        const cy = rect.top - stage.top + rect.height / 2;
-        const sx = rect.width / W0;
-        const sy = rect.height / H0;
-        const tilt = rand(-6, 6);
-        frames = [
-          { transform: tf(cx, cy, 0, sx, sy), easing: "cubic-bezier(.3,0,.6,1)" },
-          { offset: 0.16, transform: tf(cx + rand(-5, 5), cy - 5, tilt, sx, sy), easing: "cubic-bezier(.55,0,.95,.45)" },
-          { offset: 0.78, transform: tf(spot.x, spot.y + 7, spot.r + bounce * 8, spot.s), easing: "cubic-bezier(.2,.6,.3,1)" },
-          { offset: 0.9, transform: tf(spot.x, spot.y - 5, spot.r - bounce * 2, spot.s), easing: "ease-in-out" },
-          { transform: end },
-        ];
-        delay = 160 + (1 - cy / stage.height) * 420 + rand(0, 170);
-      } else {
-        const fromX = spot.x + rand(-80, 80);
-        frames = [
-          { transform: tf(fromX, -H0 * spot.s - rand(20, 260), rand(-30, 30), spot.s), easing: "cubic-bezier(.55,0,.95,.45)" },
-          { offset: 0.8, transform: tf(spot.x, spot.y + 7, spot.r + bounce * 8, spot.s), easing: "cubic-bezier(.2,.6,.3,1)" },
-          { offset: 0.92, transform: tf(spot.x, spot.y - 4, spot.r - bounce * 2, spot.s), easing: "ease-in-out" },
-          { transform: end },
-        ];
-        delay = 420 + rand(0, 720);
-      }
-      el.style.transform = String(frames[0].transform);
-      const duration = rand(900, 1180);
-      longest = Math.max(longest, delay + duration);
-      void animate(el, frames, { duration: ms(duration), delay: ms(delay) });
-    });
-    const timer = window.setTimeout(() => { busy.current = false; setPhase("play"); }, ms(longest + 40));
-    return () => window.clearTimeout(timer);
-  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const center = useCallback(() => {
-    const s = Math.min(1.22, (stage.width - 40) / W0, (stage.height - 230) / H0);
-    return tf(stage.width / 2, stage.height / 2 - 14, 0, s);
+  const pilePoint = useCallback(() => {
+    const box = counterRef.current?.getBoundingClientRect();
+    return box ? { x: box.left - stage.left + box.width / 2, y: box.top - stage.top + box.height / 2 } : { x: stage.width - 40, y: 28 };
   }, [stage]);
 
-  const flipTo = useCallback((id: number, delta: number, duration: number, delay = 0) => {
-    const flip = flips.current.get(id);
-    const from = angles.current.get(id) ?? 180;
-    const to = from + delta;
-    angles.current.set(id, to);
-    if (!flip) return Promise.resolve();
-    return animate(flip, [{ transform: `${FLIP}${from}deg)` }, { transform: `${FLIP}${to}deg)` }], { duration: ms(duration), delay: ms(delay), easing: "cubic-bezier(.45,0,.2,1)" });
+  // A card turns over in two halves: the visible face swings away edge-on, then the other face swings in.
+  const turn = useCallback((id: number, to: Side, delay = 0) => {
+    if ((sides.current.get(id) ?? "back") === to) return Promise.resolve();
+    sides.current.set(id, to);
+    const out = to === "front" ? backs.current.get(id) : fronts.current.get(id);
+    const into = to === "front" ? fronts.current.get(id) : backs.current.get(id);
+    return animate(out, [{ transform: `${P}0deg)` }, { transform: `${P}90deg)` }], { duration: ms(190), delay: ms(delay), easing: EASE_IN })
+      .then(() => animate(into, [{ transform: `${P}-90deg)` }, { transform: `${P}0deg)` }], { duration: ms(300), easing: EASE_OUT }));
   }, []);
+
+  // 1. Each card in the wall swings edge-on and its blank back swings in, in a diagonal wave.
+  useLayoutEffect(() => {
+    reduce.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    words.forEach((word) => {
+      const el = tokens.current.get(word.id);
+      const back = backs.current.get(word.id);
+      const wall = walls.get(word.id);
+      sides.current.set(word.id, "back");
+      if (!el || !back) return;
+      if (wall) { applyPose(el, wall); back.style.transform = `${P}-90deg)`; }
+      else applyPose(el, tablePose(rand(0, stage.width), -200, 0, 0.4, 0));
+    });
+    let cancelled = false;
+    const jobs = words.map((word) => {
+      const wall = walls.get(word.id);
+      if (!wall) return Promise.resolve();
+      const wave = (wall.x / stage.width) * 0.4 + (wall.y / stage.height) * 0.6;
+      return animate(gridCard(word.id), [{ transform: `${P}0deg)` }, { transform: `${P}90deg)` }], { duration: ms(210), delay: ms(wave * 480), easing: EASE_IN }, false)
+        .then(() => animate(backs.current.get(word.id), [{ transform: `${P}-90deg)` }, { transform: `${P}0deg)` }], { duration: ms(320), easing: EASE_OUT }));
+    });
+    void Promise.all(jobs).then(() => {
+      if (cancelled) return;
+      document.body.classList.add("ww-active");
+      words.forEach((word) => gridCard(word.id)?.getAnimations().forEach((animation) => animation.cancel()));
+      window.setTimeout(() => { if (!cancelled) setPhase("fall"); }, ms(120));
+    });
+    return () => { cancelled = true; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => {
+    document.body.classList.remove("ww-active");
+    document.querySelectorAll<HTMLElement>(".word-grid [data-word-card-id]").forEach((card) => { card.getAnimations().forEach((animation) => animation.cancel()); setInstant(card, ""); });
+  }, []);
+
+  // Glide cards from their current pose to their spot on the table.
+  const spread = useCallback((from: Map<number, Pose>, order: "random" | "deal") => {
+    let index = 0;
+    const items = words.flatMap((word) => {
+      const el = tokens.current.get(word.id);
+      const start = from.get(word.id);
+      const spot = spots.current.get(word.id);
+      if (!el || !start || !spot) return [];
+      return [{ el, from: start, to: tablePose(spot.x, spot.y, spot.r, spot.s), delay: ms(order === "deal" ? index++ * 14 : rand(0, 160)), duration: ms(order === "deal" ? 560 : rand(640, 840)), ease: easeOutCubic }];
+    });
+    return tweenAll(items);
+  }, [words]);
+
+  // 2. Wind: gusts sweep in from several directions in turn and blow the face-down cards about,
+  //    then the air calms and each card drifts to rest on the table.
+  useEffect(() => {
+    if (phase !== "fall") return;
+    const placed = scatter(words.length, stage);
+    const s = placed[0]?.s ?? 0.4;
+    const table = tablePose(0, 0, 0, s);
+    const base = rand(0, Math.PI * 2);
+    const gusts = [0, 1, 2, 3].map((i) => ({
+      angle: base + i * (Math.PI / 2) + rand(-0.5, 0.5),
+      start: i * 230 + rand(0, 60),
+      length: rand(520, 680),
+      strength: rand(2600, 3400),
+    }));
+    const span = Math.hypot(stage.width, stage.height);
+    const bodies = words.map((word, i) => {
+      const wall = walls.get(word.id);
+      const el = tokens.current.get(word.id);
+      if (el) el.style.zIndex = String(1 + Math.floor(Math.random() * words.length));
+      let start = wall;
+      if (!start) {
+        const g = gusts[i % gusts.length];
+        const edge = span * 0.55;
+        start = tablePose(stage.width / 2 - Math.cos(g.angle) * edge + rand(-120, 120), stage.height / 2 - Math.sin(g.angle) * edge + rand(-120, 120), rand(-40, 40), s, 1);
+      }
+      return {
+        id: word.id, el, spot: placed[i], start,
+        x: start.x, y: start.y, r: start.r, vx: 0, vy: 0, w: 0,
+        // Each card catches each gust a little differently: its own strength and a sideways swirl.
+        feel: gusts.map(() => ({ gain: rand(0.55, 1.35), swirl: rand(-0.9, 0.9) })),
+        delay: wall ? ((wall.x / stage.width) + (wall.y / stage.height)) * 40 : 0,
+      };
+    });
+    if (reduce.current) {
+      bodies.forEach((body) => { spots.current.set(body.id, body.spot); if (body.el) applyPose(body.el, tablePose(body.spot.x, body.spot.y, body.spot.r, s)); });
+      queueMicrotask(() => { busy.current = false; setPhase("play"); });
+      return;
+    }
+    const smooth = (a: number, b: number, t: number) => { const k = clamp((t - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+    let frame = 0;
+    let last = performance.now();
+    const begin = last;
+    const step = (now: number) => {
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+      const t = now - begin;
+      const calm = smooth(650, 1500, t);
+      const pull = 46 * calm;
+      const drag = 1.6 + 8.4 * calm;
+      let settled = t > 1500;
+      for (const body of bodies) {
+        const local = t - body.delay;
+        if (local < 0) { settled = false; continue; }
+        let ax = 0;
+        let ay = 0;
+        gusts.forEach((gust, g) => {
+          const u = (local - gust.start) / gust.length;
+          if (u <= 0 || u >= 1) return;
+          const strength = gust.strength * Math.sin(Math.PI * u) * body.feel[g].gain * (1 - calm);
+          const angle = gust.angle + body.feel[g].swirl * Math.sin(u * Math.PI * 2 + body.id);
+          ax += Math.cos(angle) * strength;
+          ay += Math.sin(angle) * strength;
+        });
+        ax += (body.spot.x - body.x) * pull - body.vx * drag;
+        ay += (body.spot.y - body.y) * pull - body.vy * drag;
+        const margin = 30;
+        if (body.x < -margin) ax += (-margin - body.x) * 60;
+        if (body.x > stage.width + margin) ax -= (body.x - stage.width - margin) * 60;
+        if (body.y < 40) ay += (40 - body.y) * 60;
+        if (body.y > stage.height + margin) ay -= (body.y - stage.height - margin) * 60;
+        body.vx += ax * dt;
+        body.vy += ay * dt;
+        body.x += body.vx * dt;
+        body.y += body.vy * dt;
+        // Cards flutter: they spin with the sideways air and ease toward their resting angle as it calms.
+        const speed = Math.hypot(body.vx, body.vy);
+        const spin = ((body.vx * 0.6 - body.vy * 0.4) * 0.35) * (1 - calm);
+        body.w += (spin + (body.spot.r - body.r) * 28 * calm - body.w * (2.2 + 6 * calm)) * dt;
+        body.r += body.w * dt;
+        const k = smooth(0, 420, local);
+        const shape = mix(body.start, table, k);
+        const lift = 1 + Math.min(0.12, speed / 9000) * (1 - calm);
+        if (body.el) applyPose(body.el, { ...shape, s: shape.s * lift, h: shape.h * lift, rad: shape.rad * lift, x: body.x, y: body.y, r: body.r });
+        if (Math.hypot(body.spot.x - body.x, body.spot.y - body.y) > 0.8 || speed > 6 || Math.abs(body.spot.r - body.r) > 0.6) settled = false;
+      }
+      if (!settled && t < 3200) { frame = requestAnimationFrame(step); return; }
+      bodies.forEach((body) => {
+        spots.current.set(body.id, body.spot);
+        if (body.el) applyPose(body.el, tablePose(body.spot.x, body.spot.y, body.spot.r, s));
+      });
+      busy.current = false;
+      setPhase("play");
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const center = useCallback((boost = 1) => {
+    const s = Math.min(1.22, (stage.width - 40) / W0, (stage.height - 230) / H0) * boost;
+    return tf(stage.width / 2, stage.height / 2 - 14, 0, s);
+  }, [stage]);
 
   const lift = useCallback((id: number) => {
     const el = tokens.current.get(id);
@@ -194,9 +305,9 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     setHint(false);
     el.style.zIndex = "9001";
     setLifted({ id, zh: false });
-    void animate(el, [{ transform: el.style.transform }, { transform: center() }], { duration: ms(560), easing: "cubic-bezier(.22,1,.36,1)" });
-    void flipTo(id, 180, 620, 90).then(() => { busy.current = false; });
-  }, [center, flipTo]);
+    void animate(el, [{ transform: el.style.transform }, { transform: center() }], { duration: ms(560), easing: GLIDE });
+    void turn(id, "front", 70).then(() => { busy.current = false; });
+  }, [center, turn]);
 
   const putBack = useCallback((id: number) => {
     const el = tokens.current.get(id);
@@ -205,27 +316,25 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     busy.current = true;
     setLifted(null);
     el.style.zIndex = String(++zTop.current);
-    void flipTo(id, 180, 480);
-    void animate(el, [{ transform: el.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(520), easing: "cubic-bezier(.22,1,.36,1)" }).then(() => { busy.current = false; });
-  }, [flipTo]);
+    void turn(id, "back");
+    void animate(el, [{ transform: el.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(540), easing: GLIDE }).then(() => { busy.current = false; });
+  }, [turn]);
 
   const toPile = useCallback((id: number) => {
     const el = tokens.current.get(id);
-    const box = counterRef.current?.getBoundingClientRect();
     if (!el) return;
     busy.current = true;
     setLifted(null);
-    const x = box ? box.left - stage.left + box.width / 2 : stage.width - 40;
-    const y = box ? box.top - stage.top + box.height / 2 : 28;
+    const pile = pilePoint();
     void animate(el, [
       { transform: el.style.transform, opacity: 1 },
-      { offset: 0.35, transform: center().replace(/scale\(([^,]+), ([^)]+)\)/, (_, a) => `scale(${Number(a) * 1.04}, ${Number(a) * 1.04})`), opacity: 1 },
-      { transform: tf(x, y, -14, 0.06), opacity: 0 },
-    ], { duration: ms(620), easing: "cubic-bezier(.55,0,.75,.2)" }).then(() => {
+      { offset: 0.3, transform: center(1.05), opacity: 1, easing: "cubic-bezier(.6,0,.8,.3)" },
+      { transform: tf(pile.x, pile.y, -12, 0.06), opacity: 0 },
+    ], { duration: ms(600) }).then(() => {
       setGone((current) => new Set(current).add(id));
       busy.current = false;
     });
-  }, [center, stage]);
+  }, [center, pilePoint]);
 
   function tap(id: number) {
     if (phase !== "play" || busy.current) return;
@@ -247,7 +356,6 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     else putBack(lifted.id);
   }
 
-  // Drag a face-down card around the table; a short press without moving picks it up.
   function onDown(event: ReactPointerEvent<HTMLButtonElement>, id: number) {
     if (phase !== "play" || lifted || busy.current) return;
     drag.current = { id, x: event.clientX, y: event.clientY, moved: false };
@@ -255,75 +363,111 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
   }
   function onMove(event: ReactPointerEvent<HTMLButtonElement>) {
     const state = drag.current;
-    if (!state) return;
+    const spot = state ? spots.current.get(state.id) : undefined;
+    if (!state || !spot) return;
     const dx = event.clientX - state.x;
     const dy = event.clientY - state.y;
-    const spot = spots.current.get(state.id);
-    if (!spot) return;
     if (!state.moved && Math.hypot(dx, dy) < 7) return;
-    if (!state.moved) { state.moved = true; event.currentTarget.style.zIndex = String(++zTop.current); event.currentTarget.classList.add("is-dragging"); }
-    event.currentTarget.style.transform = tf(spot.x + dx, spot.y + dy, spot.r * 0.6, spot.s * 1.08);
+    if (!state.moved) {
+      state.moved = true;
+      event.currentTarget.style.zIndex = String(++zTop.current);
+      event.currentTarget.getAnimations().forEach((animation) => animation.cancel());
+    }
+    event.currentTarget.style.transform = tf(spot.x + dx, spot.y + dy, spot.r * 0.5, spot.s * 1.08);
   }
   function onUp(event: ReactPointerEvent<HTMLButtonElement>) {
     const state = drag.current;
     drag.current = null;
     if (!state?.moved) return;
     suppressClick.current = true;
-    event.currentTarget.classList.remove("is-dragging");
     const spot = spots.current.get(state.id);
     if (!spot) return;
-    const w = W0 * spot.s / 2;
-    spot.x = Math.min(stage.width - w, Math.max(w, spot.x + event.clientX - state.x));
-    spot.y = Math.min(stage.height - 20, Math.max(70, spot.y + event.clientY - state.y));
-    spot.r = spot.r * 0.6 + rand(-6, 6);
-    void animate(event.currentTarget, [{ transform: event.currentTarget.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(360), easing: "cubic-bezier(.34,1.56,.64,1)" });
+    const half = W0 * spot.s / 2;
+    spot.x = clamp(spot.x + event.clientX - state.x, half, stage.width - half);
+    spot.y = clamp(spot.y + event.clientY - state.y, 70, stage.height - 20);
+    spot.r = spot.r * 0.5 + rand(-6, 6);
+    void animate(event.currentTarget, [{ transform: event.currentTarget.style.transform }, { transform: tf(spot.x, spot.y, spot.r, spot.s) }], { duration: ms(380), easing: "cubic-bezier(.34,1.4,.64,1)" });
   }
 
-  const remaining = words.length - gone.size;
-  const allDone = phase === "play" && remaining === 0;
+  // Deal a fresh round out of the pile.
+  useLayoutEffect(() => {
+    if (phase !== "deal") return;
+    const pile = pilePoint();
+    const placed = scatter(words.length, stage);
+    const from = new Map<number, Pose>();
+    words.forEach((word, i) => {
+      spots.current.set(word.id, placed[i]);
+      sides.current.set(word.id, "back");
+      const el = tokens.current.get(word.id);
+      const front = fronts.current.get(word.id);
+      const back = backs.current.get(word.id);
+      if (front) front.style.transform = `${P}-90deg)`;
+      if (back) back.style.transform = `${P}0deg)`;
+      const start = tablePose(pile.x, pile.y, -12, 0.06, 0);
+      if (el) { el.style.zIndex = String(i + 1); applyPose(el, start); }
+      from.set(word.id, start);
+    });
+    let cancelled = false;
+    void spread(from, "deal").then(() => { if (!cancelled) { busy.current = false; setPhase("play"); } });
+    return () => { cancelled = true; };
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function reshuffle() {
-    const placed = scatter(words.length, stage);
-    words.forEach((word, i) => spots.current.set(word.id, placed[i]));
+    busy.current = true;
     setGone(new Set());
     setPassed(0);
-    busy.current = true;
-    setPhase("fall");
+    setPhase("deal");
   }
 
-  // 3. Leaving: every card flies back into its place in the wall, then turns face up.
   function exit() {
-    if (phase !== "play" && phase !== "fall") return;
+    if (phase === "rebuild") return;
     busy.current = true;
     setLifted(null);
     setPhase("rebuild");
   }
 
+  // 3. Leaving: the cards fly back into the wall, bottom row first, and each turns face up again.
   useLayoutEffect(() => {
     if (phase !== "rebuild") return;
-    const box = counterRef.current?.getBoundingClientRect();
-    const pileX = box ? box.left - stage.left + box.width / 2 : stage.width - 40;
-    const pileY = box ? box.top - stage.top + box.height / 2 : 28;
-    let longest = 0;
-    const next = new Map(words.map((word) => [word.id, visibleRect(word.id, stage)] as const));
-    words.forEach((word) => {
+    const pile = pilePoint();
+    const targets = new Map(words.map((word) => [word.id, wallPose(word.id, stage)] as const));
+    targets.forEach((wall, id) => { const card = wall ? gridCard(id) : null; if (card) setInstant(card, `${P}-90deg)`); });
+    document.body.classList.remove("ww-active");
+    const items = words.flatMap((word) => {
       const el = tokens.current.get(word.id);
-      if (!el) return;
-      const rect = next.get(word.id);
-      const angle = angles.current.get(word.id) ?? 180;
-      if (Math.round(angle / 180) % 2 === 0) void flipTo(word.id, 180, 420);
-      if (gone.has(word.id)) { el.style.transform = tf(pileX, pileY, -14, 0.06); el.style.opacity = "0"; }
-      const from = el.style.transform;
-      const target = rect
-        ? tf(rect.left - stage.left + rect.width / 2, rect.top - stage.top + rect.height / 2, 0, rect.width / W0, rect.height / H0)
-        : tf(stage.width / 2 + rand(-stage.width / 2, stage.width / 2), stage.height + 160, rand(-20, 20), 0.3);
-      const delay = rect ? 60 + (1 - (rect.top - stage.top) / stage.height) * 360 + rand(0, 120) : rand(0, 200);
-      const duration = rand(560, 720);
-      longest = Math.max(longest, delay + duration);
-      void animate(el, [{ transform: from, opacity: Number(el.style.opacity || 1) }, { transform: target, opacity: rect ? 1 : 0 }], { duration: ms(duration), delay: ms(delay), easing: "cubic-bezier(.65,0,.35,1)" });
+      const spot = spots.current.get(word.id);
+      if (!el) return [];
+      el.getAnimations().forEach((animation) => animation.cancel());
+      let from: Pose;
+      if (gone.has(word.id) || !spot) from = tablePose(pile.x, pile.y, -12, 0.06, 0);
+      else {
+        const lifted = (sides.current.get(word.id) ?? "back") === "front";
+        from = lifted ? tablePose(stage.width / 2, stage.height / 2 - 14, 0, Math.min(1.22, (stage.width - 40) / W0, (stage.height - 230) / H0)) : tablePose(spot.x, spot.y, spot.r, spot.s);
+      }
+      if ((sides.current.get(word.id) ?? "back") === "front") {
+        sides.current.set(word.id, "back");
+        const front = fronts.current.get(word.id);
+        const back = backs.current.get(word.id);
+        void animate(front, [{ transform: `${P}0deg)` }, { transform: `${P}90deg)` }], { duration: ms(160), easing: EASE_IN })
+          .then(() => animate(back, [{ transform: `${P}-90deg)` }, { transform: `${P}0deg)` }], { duration: ms(220), easing: EASE_OUT }));
+      }
+      applyPose(el, from);
+      const wall = targets.get(word.id);
+      const to = wall ?? tablePose(rand(0, stage.width), stage.height + 200, rand(-20, 20), 0.3, 0);
+      const done = () => {
+        if (!wall) return;
+        void animate(backs.current.get(word.id), [{ transform: `${P}0deg)` }, { transform: `${P}90deg)` }], { duration: ms(200), easing: EASE_IN })
+          .then(() => {
+            const card = gridCard(word.id);
+            return animate(card, [{ transform: `${P}-90deg)` }, { transform: `${P}0deg)` }], { duration: ms(320), easing: EASE_OUT }, false)
+              .then(() => { if (card) { card.getAnimations().forEach((animation) => animation.cancel()); setInstant(card, ""); } });
+          });
+      };
+      return [{ el, from, to, delay: ms(wall ? (1 - wall.y / stage.height) * 320 + rand(0, 90) : rand(0, 160)), duration: ms(rand(560, 680)), ease: easeInOutCubic, done }];
     });
-    const timer = window.setTimeout(() => { setRects(next); setGone(new Set()); setPhase("unflip"); }, ms(longest + 60));
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    void tweenAll(items).then(() => new Promise((resolve) => window.setTimeout(resolve, ms(560)))).then(() => { if (!cancelled) onClose(); });
+    return () => { cancelled = true; };
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -336,33 +480,11 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     return () => document.removeEventListener("keydown", onKey);
   });
 
-  if (!mounted) return null;
-  const showTokens = phase === "fall" || phase === "play" || phase === "rebuild";
-  const showClones = phase === "flip" || phase === "unflip";
+  const allDone = phase === "play" && gone.size === words.length;
 
   return createPortal(
-    <div ref={stageRef} className="ww-stage" style={{ left: stage.left, top: stage.top, width: stage.width, height: stage.height }} role="dialog" aria-modal="true" aria-label="翻卡练习">
-      {showClones && words.map((word) => {
-        const rect = rects.get(word.id);
-        if (!rect) return null;
-        return (
-          <div key={word.id} className="ww-clone" style={{ left: rect.left - stage.left, top: rect.top - stage.top, width: rect.width, height: rect.height }} aria-hidden="true">
-            <div className="ww-clone-inner" ref={(el) => { if (el) clones.current.set(word.id, el); else clones.current.delete(word.id); }}>
-              <div className="ww-clone-front" inert ref={(el) => {
-                if (!el || el.firstChild) return;
-                const copy = gridCard(word.id)?.cloneNode(true) as HTMLElement | undefined;
-                if (!copy) return;
-                copy.removeAttribute("data-word-card-id");
-                copy.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-                el.appendChild(copy);
-              }} />
-              <div className="ww-clone-back ww-back" />
-            </div>
-          </div>
-        );
-      })}
-
-      {showTokens && words.map((word, index) => (phase !== "rebuild" && gone.has(word.id)) ? null : (
+    <div className="ww-stage" style={{ left: stage.left, top: stage.top, width: stage.width, height: stage.height }} role="dialog" aria-modal="true" aria-label="翻卡">
+      {words.map((word, index) => (phase !== "rebuild" && phase !== "deal" && gone.has(word.id)) ? null : (
         <button
           key={word.id}
           type="button"
@@ -375,19 +497,17 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
           onPointerCancel={onUp}
           onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } tap(word.id); }}
         >
-          <span className="ww-flip" ref={(el) => { if (el) flips.current.set(word.id, el); else flips.current.delete(word.id); }}>
-            <span className={`ww-face ww-front${lifted?.id === word.id && lifted.zh ? " show-zh" : ""}`}>
-              <span className="ww-en" lang="en">{word.text}</span>
-              <span className="ww-zh">{word.translation || "（还没有释义）"}</span>
-            </span>
-            <span className="ww-face ww-back" />
+          <span className="ww-face ww-back" ref={(el) => { if (el) backs.current.set(word.id, el); else backs.current.delete(word.id); }} />
+          <span className={`ww-face ww-front${lifted?.id === word.id && lifted.zh ? " show-zh" : ""}`} ref={(el) => { if (el) fronts.current.set(word.id, el); else fronts.current.delete(word.id); }}>
+            <span className="ww-en" lang="en">{word.text}</span>
+            <span className="ww-zh">{word.translation}</span>
           </span>
         </button>
       ))}
 
       <div className={`ww-backdrop${lifted ? " is-shown" : ""}`} onClick={tapBackdrop} aria-hidden="true" />
 
-      <div className={`ww-bar${phase === "play" || phase === "fall" ? " is-shown" : ""}`}>
+      <div className={`ww-bar${phase === "play" || phase === "fall" || phase === "deal" ? " is-shown" : ""}`}>
         <button type="button" className="ww-chip" onClick={exit}><X className="size-4" />收起</button>
         <span className="ww-count" aria-live="polite" aria-label={`已过关 ${passed} / ${words.length}`}><strong key={passed} ref={counterRef}>{passed}</strong> / {words.length}</span>
       </div>
