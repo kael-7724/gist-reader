@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, BookOpen, Bookmark, Check, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { BarChart3, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
 import { KaoyanCoverage } from "@/components/kaoyan-coverage";
+import { TranslationSheet } from "@/components/translation-sheet";
+import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,7 +22,7 @@ type RelatedWord = { word: string; translation: string };
 type SavedWord = { id: number; articleId?: number | null; text: string; translation: string; context: string; articleTitle: string; createdAt: string; maimemoVocId?: string | null; syncStatus?: "pending" | "synced" | "failed"; syncError?: string | null; syncedAt?: string | null; similarJson?: string | null; lookalikeJson?: string | null };
 type SavedSentence = { id: number; articleId?: number | null; text: string; translation: string; articleTitle: string; createdAt: string };
 type SelectionKind = "word" | "phrase" | "sentence";
-type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean };
+type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean; saved?: boolean };
 type TranslationMode = "realtime";
 type ReadingSettings = { fontSize: number; lineHeight: number; fontFamily: "serif" | "sans" | "georgia"; letterSpacing: number };
 const defaultReadingSettings: ReadingSettings = { fontSize: 20, lineHeight: 1.95, fontFamily: "georgia", letterSpacing: 0 };
@@ -157,6 +159,12 @@ export default function Home() {
   const [translationsHidden, setTranslationsHidden] = useState(false);
   const [revealedWordIds, setRevealedWordIds] = useState<number[]>([]);
   const [kaoyanOn, setKaoyanOn] = useState(true);
+  // 标记模式: selecting a word saves it straight to the book without showing its meaning.
+  const [markMode, setMarkMode] = useState(false);
+  const readerPanelRef = useRef<HTMLElement | null>(null);
+  const articleBodyRef = useRef<HTMLDivElement | null>(null);
+  const lastPickRef = useRef({ text: "", at: 0 });
+  const tempIdRef = useRef(-1);
   const wordMoveRectsRef = useRef<Map<number, DOMRect> | null>(null);
   const movingWordRef = useRef(false);
 
@@ -265,6 +273,18 @@ export default function Home() {
     try { if (localStorage.getItem("gist-kaoyan-highlight") === "off") queueMicrotask(() => setKaoyanOn(false)); } catch { /* Device preference only. */ }
   }, []);
 
+  useEffect(() => {
+    try { if (localStorage.getItem("gist-mark-mode") === "on") queueMicrotask(() => setMarkMode(true)); } catch { /* Device preference only. */ }
+  }, []);
+
+  function toggleMarkMode() {
+    const next = !markMode;
+    setMarkMode(next);
+    try { localStorage.setItem("gist-mark-mode", next ? "on" : "off"); } catch { /* Device preference only. */ }
+    if (next) setSelection(null);
+    toast(next ? "标记模式：划词直接收藏，不显示释义" : "查词模式：划词显示释义", { duration: 1800 });
+  }
+
   function toggleKaoyan() {
     setKaoyanOn((on) => {
       try { localStorage.setItem("gist-kaoyan-highlight", on ? "off" : "on"); } catch { /* Device preference only. */ }
@@ -287,15 +307,20 @@ export default function Home() {
     fetch("/api/ai/connection").then((response) => response.ok ? json<{ connected: boolean; endpoint?: string; model?: string; thinkingMode?: string }>(response) : Promise.reject()).then((data) => { setAiConnected(Boolean(data.connected)); if (data.endpoint) setAiEndpoint(data.endpoint); if (data.model) setAiModel(data.model); if (data.thinkingMode === "enabled") setAiThinkingMode("enabled"); }).catch(() => undefined);
   }, []);
 
+  async function requestTranslation(text: string, type: SelectionKind, context: string, articleId: number) {
+    const response = await fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, type, context, articleId, mode: translationMode }) });
+    const data = await json<{ translation?: string; error?: string }>(response);
+    if (!response.ok) throw new Error(data.error || "实时翻译失败");
+    return data.translation || "";
+  }
+
   async function translateSelection(text: string, type: SelectionKind, context: string) {
     const requestId = ++translationRequestRef.current;
     setSelection({ text, type, context, translation: "", loading: true });
     try {
       if (!activeArticle || activeArticle.id < 1) throw new Error("请先添加自己的文章");
-      const response = await fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, type, context, articleId: activeArticle.id, mode: translationMode }) });
-      const data = await json<{ translation?: string; error?: string }>(response);
-      if (!response.ok) throw new Error(data.error || "实时翻译失败");
-      if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: data.translation || "暂时没有获取到翻译", loading: false, error: false });
+      const translation = await requestTranslation(text, type, context, activeArticle.id);
+      if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: translation || "暂时没有获取到翻译", loading: false, error: !translation });
     } catch (error) {
       const message = error instanceof Error ? error.message : "翻译暂时不可用";
       if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: message, loading: false, error: true });
@@ -303,20 +328,93 @@ export default function Home() {
     }
   }
 
+  const closeSelection = useCallback(() => {
+    translationRequestRef.current += 1;
+    setSelection(null);
+  }, []);
+
+  // Dismiss the sheet on a tap outside it, but not when the reader scrolls or long-presses to select again.
   useEffect(() => {
     if (!selection) return;
-    const dismiss = (event: PointerEvent) => {
-      if (translationFloatRef.current?.contains(event.target as Node)) return;
-      translationRequestRef.current += 1;
-      setSelection(null);
+    let start: { x: number; y: number; t: number } | null = null;
+    const down = (event: PointerEvent) => {
+      start = translationFloatRef.current?.contains(event.target as Node) ? null : { x: event.clientX, y: event.clientY, t: performance.now() };
     };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [selection]);
+    const up = (event: PointerEvent) => {
+      if (!start) return;
+      const moved = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      const held = performance.now() - start.t;
+      start = null;
+      if (moved < 10 && held < 450 && !window.getSelection()?.toString().trim()) closeSelection();
+    };
+    document.addEventListener("pointerdown", down);
+    document.addEventListener("pointerup", up);
+    return () => { document.removeEventListener("pointerdown", down); document.removeEventListener("pointerup", up); };
+  }, [selection, closeSelection]);
+
+  function isAlreadySaved(text: string, type: SelectionKind) {
+    if (type === "sentence") return sentences.some((item) => item.text.replace(/\s+/g, " ").trim() === text);
+    if (type === "phrase") return savedWordSet.has(text.replace(/[’]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, "").toLowerCase());
+    return englishLemmaCandidates(text).some((candidate) => savedWordSet.has(candidate));
+  }
+
+  // Keep the selected line visible above the sheet.
+  function keepAboveSheet(rect: DOMRect, type: SelectionKind) {
+    const panel = readerPanelRef.current;
+    if (!panel || rect.height === 0) return;
+    const limit = window.innerHeight - (type === "sentence" ? 250 : 170);
+    if (rect.bottom > limit) window.setTimeout(() => panel.scrollBy({ top: rect.bottom - limit, behavior: "smooth" }), 60);
+  }
+
+  async function markSelection(text: string, type: SelectionKind, context: string) {
+    const article = activeArticle;
+    if (!article || article.id < 1) { toast.error("请先添加自己的文章"); return; }
+    if (isAlreadySaved(text, type)) { toast(type === "sentence" ? "句子本里已经有了" : "已经收藏过了", { duration: 1400 }); return; }
+    const tempId = tempIdRef.current--;
+    const createdAt = "";
+    const state = { cancelled: false, id: 0 };
+    const drop = () => {
+      if (type === "sentence") setSentences((items) => items.filter((item) => item.id !== tempId && item.id !== state.id));
+      else setWords((items) => items.filter((item) => item.id !== tempId && item.id !== state.id));
+    };
+    if (type === "sentence") setSentences((items) => [{ id: tempId, articleId: article.id, text, translation: "", articleTitle: article.title, createdAt }, ...items]);
+    else setWords((items) => [{ id: tempId, articleId: article.id, text: text.toLowerCase(), translation: "", context, articleTitle: article.title, createdAt }, ...items]);
+    const shown = text.length > 28 ? `${text.slice(0, 26)}…` : text;
+    toast(`已标记 ${shown}`, {
+      duration: 2600,
+      action: { label: "撤销", onClick: () => {
+        state.cancelled = true;
+        drop();
+        if (state.id) void fetch(`/api/library?kind=${type === "sentence" ? "sentence" : "word"}&id=${state.id}`, { method: "DELETE" });
+      } },
+    });
+    try {
+      const translation = await requestTranslation(text, type, context, article.id);
+      if (!translation) throw new Error("暂时没有获取到翻译");
+      if (state.cancelled) return;
+      const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-selection", text, type, context, translation, articleId: article.id, articleTitle: article.title }) });
+      const data = await json<{ error?: string; item: SavedWord | SavedSentence }>(response);
+      if (!response.ok) throw new Error(data.error || "保存失败");
+      state.id = data.item.id;
+      if (state.cancelled) { void fetch(`/api/library?kind=${type === "sentence" ? "sentence" : "word"}&id=${state.id}`, { method: "DELETE" }); return; }
+      if (type === "sentence") { const item = data.item as SavedSentence; setSentences((items) => [item, ...items.filter((x) => x.id !== tempId && x.id !== item.id)]); }
+      else { const item = data.item as SavedWord; setWords((items) => [item, ...items.filter((x) => x.id !== tempId && x.id !== item.id)]); if (aiConnected) void enrichWord(item.id); }
+    } catch (error) {
+      drop();
+      const message = error instanceof Error ? error.message : "标记失败";
+      toast.error(`没有标记上：${message}`);
+      if (message.includes("DeepSeek")) setAiOpen(true);
+    }
+  }
 
   function handleSelection() {
-    const selected = window.getSelection()?.toString().trim().replace(/\s+/g, " ") || "";
+    const current = window.getSelection();
+    const selected = current?.toString().trim().replace(/\s+/g, " ") || "";
     if (!selected || selected.length > 700) return;
+    if (current?.anchorNode && articleBodyRef.current && !articleBodyRef.current.contains(current.anchorNode)) return;
+    const now = Date.now();
+    if (lastPickRef.current.text === selected && now - lastPickRef.current.at < 900) { current?.removeAllRanges(); return; }
+    lastPickRef.current = { text: selected, at: now };
     const core = selected.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, "");
     const wordCount = core.split(" ").filter(Boolean).length;
     // One word goes to the word book; 2–4 plain words (e.g. "take over", "on the contrary") are a phrase, which also goes to the word book; anything longer is a sentence.
@@ -324,9 +422,37 @@ export default function Home() {
     const fullText = activeArticle.content.replace(/\s+/g, " ");
     const at = fullText.indexOf(selected);
     const context = at >= 0 ? fullText.slice(Math.max(0, at - 90), Math.min(fullText.length, at + selected.length + 90)) : selected;
+    const rect = current && current.rangeCount ? current.getRangeAt(0).getBoundingClientRect() : null;
+    current?.removeAllRanges();
+    if (markMode) { void markSelection(selected, type, context); return; }
     void translateSelection(selected, type, context);
-    window.getSelection()?.removeAllRanges();
+    if (rect) keepAboveSheet(rect, type);
   }
+  const handleSelectionRef = useRef(handleSelection);
+  useEffect(() => { handleSelectionRef.current = handleSelection; });
+
+  // Touch screens: wait until the finger is lifted and the selection has settled, so the handles can still be dragged.
+  useEffect(() => {
+    if (!window.matchMedia("(pointer: coarse)").matches) return;
+    let timer = 0;
+    let touching = false;
+    const schedule = () => { window.clearTimeout(timer); timer = window.setTimeout(() => { if (!touching) handleSelectionRef.current(); }, 520); };
+    const hasSelection = () => { const current = window.getSelection(); return Boolean(current && !current.isCollapsed && articleBodyRef.current?.contains(current.anchorNode)); };
+    const onChange = () => { if (hasSelection() && !touching) schedule(); };
+    const onStart = () => { touching = true; window.clearTimeout(timer); };
+    const onEnd = () => { touching = false; if (hasSelection()) schedule(); };
+    document.addEventListener("selectionchange", onChange);
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    document.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("selectionchange", onChange);
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+    };
+  }, []);
 
   async function saveSelection() {
     if (!selection || !activeArticle) return;
@@ -335,9 +461,11 @@ export default function Home() {
       const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-selection", ...selection, articleId: activeArticle.id, articleTitle: activeArticle.title }) });
       const data = await json<{ error?: string; item: SavedWord | SavedSentence }>(response);
       if (!response.ok) throw new Error(data.error);
-      if (selection.type !== "sentence") { const item = data.item as SavedWord; setWords((items) => [item, ...items.filter((x) => x.id !== item.id)]); if (selection.type === "phrase") toast.success("已加入词组本"); else if (item.text.toLowerCase() !== selection.text.toLowerCase()) toast.success(`已还原为 ${item.text} 并加入单词本`); else toast.success("已加入单词本"); if (aiConnected) void enrichWord(item.id); }
+      if (selection.type !== "sentence") { const item = data.item as SavedWord; setWords((items) => [item, ...items.filter((x) => x.id !== item.id)]); if (selection.type === "word" && item.text.toLowerCase() !== selection.text.toLowerCase()) toast(`已还原为 ${item.text}`, { duration: 1800 }); if (aiConnected) void enrichWord(item.id); }
       else { const item = data.item as SavedSentence; setSentences((items) => [item, ...items.filter((x) => x.id !== item.id)]); }
-      if (selection.type === "sentence") toast.success("已加入句子本"); setSelection(null);
+      const savedText = selection.text;
+      setSelection((current) => current && current.text === savedText ? { ...current, saved: true } : current);
+      window.setTimeout(() => setSelection((current) => current?.saved && current.text === savedText ? null : current), 900);
     } catch { toast.error("保存失败，请稍后重试"); } finally { setSaving(false); }
   }
 
@@ -682,6 +810,7 @@ export default function Home() {
           </TabsList>
           <div className="topbar-actions">
             <Button variant={kaoyanOn ? "default" : "outline"} className="rounded-xl" aria-pressed={kaoyanOn} onClick={toggleKaoyan} aria-label={kaoyanOn ? "隐藏考研词标记" : "显示考研词标记"} title="在文章中用虚线标出考研词汇"><Highlighter className="size-4" /><span className="button-label">考研词</span></Button>
+            <Button variant={markMode ? "default" : "outline"} className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式：划词直接收藏，不显示释义" : "查词模式：划词显示释义"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
             <Dialog open={readingOpen} onOpenChange={setReadingOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="阅读设置" title="阅读排版"><Type className="size-4" /><span className="button-label">阅读设置</span></Button></DialogTrigger>
               <DialogContent className="rounded-xl sm:max-w-md"><DialogHeader><DialogTitle className="text-2xl">阅读设置</DialogTitle><DialogDescription>调整文章的字号、行距、字距和字体。设置仅保存在当前设备。</DialogDescription></DialogHeader>
                 <div className="reading-controls"><label>字号 <strong>{readingSettings.fontSize}px</strong><input type="range" min="14" max="32" step="1" value={readingSettings.fontSize} onChange={(event) => updateReadingSettings({ ...readingSettings, fontSize: Number(event.target.value) })} /></label>
@@ -715,10 +844,10 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article className="reader-panel"><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? `导入于 ${formatImportDate(activeArticle.createdAt)}` : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
+        <section className="content"><TabsContent value="read" className="h-full"><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? `导入于 ${formatImportDate(activeArticle.createdAt)}` : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
-    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · 发表于 {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文链接</a></p>}</div></div><div className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
-          <aside ref={translationFloatRef} className="translation-float" hidden={!selection} aria-live="polite">{selection ? <div className="selection-card"><div className="selection-type"><Languages className="size-4" />{selection.type === "word" ? "单词" : selection.type === "phrase" ? "词组 · 存到词组本" : "句子 · 存到句子本"}{selection.type === "phrase" && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "sentence" })}>改存句子本</button>}{selection.type === "sentence" && selection.text.split(" ").length <= 8 && <button type="button" className="selection-switch" onClick={() => setSelection((current) => current && { ...current, type: "phrase" })}>改存为词组</button>}</div><p className="selected-text">{selection.text}</p><div className="translation-box"><span>中文释义</span>{selection.loading ? <p className="flex items-center gap-2 text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在实时翻译…</p> : <p>{selection.translation}</p>}</div><Button className="w-full rounded-xl" disabled={selection.loading || selection.error || saving} onClick={() => void saveSelection()}>{saving && <Loader2 className="size-4 animate-spin" />}收藏</Button></div> : null}</aside></div></TabsContent>
+    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · 发表于 {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文链接</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
+          <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
 
           <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>
           <TabsContent value="phrases" className="library-page">{wordBookView}</TabsContent>
@@ -727,7 +856,7 @@ export default function Home() {
           <TabsContent value="stats" className="library-page"><ReadingStats active={tab === "stats"} onOpenArticle={(id) => { setActiveArticleId(id); setTab("read"); }}>{tab === "stats" && <KaoyanCoverage articles={articles} savedWords={savedWordTexts} />}</ReadingStats></TabsContent>
         </section>
 
-        <div className={`article-dock ${articleDockOpen ? "open" : ""}`} onMouseEnter={() => setArticleDockOpen(true)} onMouseLeave={() => setArticleDockOpen(false)} onFocusCapture={() => setArticleDockOpen(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArticleDockOpen(false); }}>
+        <div className={`article-dock ${articleDockOpen ? "open" : ""}${selection && tab === "read" ? " is-hidden" : ""}`} onMouseEnter={() => setArticleDockOpen(true)} onMouseLeave={() => setArticleDockOpen(false)} onFocusCapture={() => setArticleDockOpen(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArticleDockOpen(false); }}>
           <button type="button" className="article-dock-trigger" onClick={() => setArticleDockOpen((open) => !open)} aria-expanded={articleDockOpen} aria-label="选择文章"><FileText className="size-5" /><span>{activeArticle ? articleLabel(activeArticle) : ""}</span></button>
           <div className="article-dock-list" ref={dockListRef}>{articles.map((article) => <div className={`dock-article ${activeArticleId === article.id ? "active" : ""}`} key={article.id}><button type="button" className="dock-article-button" tabIndex={articleDockOpen ? 0 : -1} onClick={() => { setActiveArticleId(article.id); setTab("read"); setArticleDockOpen(false); }}><FileText className="size-4" /><span title={article.title}>{articleLabel(article)}</span>{article.id > 0 && <small className="dock-date">{formatImportDate(article.createdAt, true)}</small>}</button>{article.id > 0 && <AlertDialog><AlertDialogTrigger asChild><button type="button" tabIndex={articleDockOpen ? 0 : -1} className="dock-delete" aria-label={`删除《${articleLabel(article)}》`}><Trash2 className="size-3.5" /></button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除《{articleLabel(article)}》？</AlertDialogTitle><AlertDialogDescription>文章正文和预翻译缓存会被删除，已经收藏到单词本、句子本的内容会保留。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction className="bg-destructive text-black hover:bg-destructive/85" onClick={() => void removeArticle(article.id)}>确认删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}</div>)}</div>
         </div>
