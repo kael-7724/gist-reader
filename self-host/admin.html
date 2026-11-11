@@ -40,7 +40,7 @@
 
   <section class="result" id="result">
     <h2 id="result-title">账号已创建</h2>
-    <p>把下面这段发给对方。<strong>密码只显示这一次</strong>，关掉页面后就看不到了，忘了可以点「重置密码」。</p>
+    <p id="result-note"></p>
     <pre id="result-text"></pre>
     <button id="copy" type="button">复制</button>
   </section>
@@ -51,7 +51,7 @@
       <input id="username" name="username" placeholder="用户名，例如 xiaoming" autocomplete="off" required pattern="[a-z0-9_-]{2,32}">
       <button class="primary" type="submit">创建</button>
     </form>
-    <div class="hint">只能用小写字母、数字、- 和 _，2–32 位。密码会自动生成。</div>
+    <div class="hint">只能用小写字母、数字、- 和 _，2–32 位。初始密码和用户名相同。</div>
     <div class="hint error" id="create-error"></div>
   </section>
 
@@ -71,13 +71,16 @@ async function api(body) {
   return data;
 }
 
-function share(user, title) {
+function share(user, title, created = false) {
   $("result-title").textContent = title;
+  $("result-note").innerHTML = created
+    ? "把下面这段发给对方。初始密码和用户名相同，<strong>请提醒对方登录后在右上角「设置」里改密码</strong>。"
+    : "把下面这段发给对方。<strong>密码只显示这一次</strong>，关掉页面后就看不到了，忘了可以再点「重置密码」。";
   $("result-text").textContent =
 `Gist 英语精读
 网址：${site}
 用户名：${user.username}
-密码：${user.password}
+密码：${user.password}${created ? "（初始密码和用户名相同，登录后请在右上角「设置」里修改）" : ""}
 
 （可选）让 ChatGPT 每天自动导入文章用的连接地址，不要公开：
 ${site}/connector/${user.importToken}/mcp`;
@@ -134,7 +137,7 @@ $("create").onsubmit = async (event) => {
   try {
     const user = await api({ action: "create", username: $("username").value.trim().toLowerCase() });
     $("username").value = "";
-    share(user, "账号已创建");
+    share(user, "账号已创建", true);
     load();
   } catch (e) { $("create-error").textContent = e.message; }
 };

@@ -204,8 +204,7 @@ async function handleConnector(request, env, context, url, token) {
   }
 }
 
-async function newCredentials(env) {
-  const password = generatePassword();
+async function newCredentials(env, password = generatePassword()) {
   const salt = randomBytes(16).toString("base64url");
   return { password, salt, hash: hashPassword(salt, password) };
 }
@@ -223,7 +222,8 @@ async function handleAdminApi(request, env) {
   if (username === adminName(env)) return jsonResponse({ error: "这个用户名是你自己的，不能使用" }, 400);
 
   if (action === "create") {
-    const { password, salt, hash } = await newCredentials(env);
+    // New accounts start with the username as the password; the friend changes it in Settings after signing in.
+    const { password, salt, hash } = await newCredentials(env, username);
     const importToken = randomBytes(32).toString("base64url");
     const ownerId = `gist-user:${randomUUID()}`;
     const inserted = await env.DB.prepare(
