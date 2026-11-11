@@ -94,12 +94,3 @@ export async function translateManyWithDeepSeek(request: Request, owner: string,
   return translated;
 }
 
-// A 2-5 character Chinese name for an article (e.g. 粉色噪音), shown in lists.
-export async function suggestShortTitle(request: Request, owner: string, title: string, excerpt: string) {
-  const result = await complete(await credentials(request, owner),
-    "You name English news articles for a Chinese reader. Reply with JSON {\"shortTitle\": \"...\"}: a 2-5 character Simplified Chinese name for the article's core topic (e.g. 粉色噪音, 臭氧空洞, 技能退化, 银牌之痛, 中期选举). Chinese only (a common acronym like AI is allowed), no punctuation, no dates, not a translation of the whole headline.",
-    { title, excerpt: excerpt.slice(0, 1200) });
-  const value = typeof result.shortTitle === "string" ? result.shortTitle.replace(/[\s\p{P}]/gu, "") : "";
-  const length = [...value].length;
-  return length >= 2 && length <= 5 ? value : "";
-}

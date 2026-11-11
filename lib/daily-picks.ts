@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { database } from "@/lib/site-data";
 
-// Articles sent through the site owner's connector (or the owner's clip button) go to a shared
+// Articles sent through the site owner's connector go to a shared
 // daily list, and every account picks the ones it wants to read.
 export const POOL_OWNER = "gist-selfhost-owner";
 export const PICKS_PER_DAY = 5;
