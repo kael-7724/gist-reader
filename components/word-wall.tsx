@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, RotateCcw, Undo2, X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 
 export type WallWord = { id: number; text: string; translation: string };
 
@@ -346,20 +346,14 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
     if (phase !== "play" || busy.current) return;
     if (!lifted) { lift(id); return; }
     if (lifted.id !== id) return;
-    if (!lifted.zh) { setLifted({ id, zh: true }); setPassed((n) => n + 1); return; }
+    if (!lifted.zh) { setLifted({ id, zh: true }); return; }
+    setPassed((n) => n + 1);
     toPile(id);
-  }
-
-  function forget() {
-    if (!lifted?.zh || busy.current) return;
-    setPassed((n) => Math.max(0, n - 1));
-    putBack(lifted.id);
   }
 
   function tapBackdrop() {
     if (!lifted || busy.current) return;
-    if (lifted.zh) toPile(lifted.id);
-    else putBack(lifted.id);
+    putBack(lifted.id);
   }
 
   function onDown(event: ReactPointerEvent<HTMLButtonElement>, id: number) {
@@ -598,10 +592,6 @@ export function WordWall({ words, onClose }: { words: WallWord[]; onClose: () =>
 
       <p className={`ww-hint${phase === "play" && hint ? " is-shown" : ""}`}>点牌翻开</p>
       <p className={`ww-hint${lifted && !lifted.zh ? " is-shown" : ""}`}>再点看中文</p>
-      <div className={`ww-actions${lifted?.zh ? " is-shown" : ""}`}>
-        <button type="button" className="ww-chip" onClick={forget}><Undo2 className="size-4" />放回</button>
-        <button type="button" className="ww-chip is-primary" onClick={() => lifted && toPile(lifted.id)}><Check className="size-4" />过关</button>
-      </div>
 
       {allDone && (
         <div className="ww-done">
