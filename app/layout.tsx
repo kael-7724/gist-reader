@@ -20,7 +20,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: "try{var m=document.cookie.match(/(?:^|; )gist_theme=(light|dark)/);if(m)document.documentElement.dataset.theme=m[1]}catch(e){}" }} />
+      </head>
       <body className="antialiased">{children}</body>
     </html>
   );

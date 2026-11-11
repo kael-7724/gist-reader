@@ -256,8 +256,13 @@ function safeNext(value) {
   return value.slice(0, 500);
 }
 
-function loginResponse({ next = "/", username = "", error = "" }, status = 200) {
+function themeOf(request) {
+  return /(?:^|;\s*)gist_theme=light(?:;|$)/.test(request.headers.get("cookie") || "") ? "light" : "dark";
+}
+
+function loginResponse({ next = "/", username = "", error = "", theme = "dark" }, status = 200) {
   const html = loginPage
+    .replace("{{THEME}}", theme === "light" ? "light" : "dark")
     .replace("{{NEXT}}", escapeHtml(next))
     .replace("{{USERNAME}}", escapeHtml(username))
     .replace("{{ERROR}}", escapeHtml(error))
@@ -319,18 +324,18 @@ export default {
         const form = await request.formData().catch(() => null);
         const next = safeNext(form?.get("next"));
         const username = String(form?.get("username") ?? "").trim().slice(0, 64);
-        if (await tooManyFailures(env, request)) return loginResponse({ next, username, error: "登录失败次数太多，请 15 分钟后再试" }, 429);
+        if (await tooManyFailures(env, request)) return loginResponse({ next, username, error: "登录失败次数太多，请 15 分钟后再试", theme: themeOf(request) }, 429);
         const signedIn = await accountFromPassword(env, username, form?.get("password"));
         if (!signedIn) {
           await recordFailure(env, request);
           await new Promise((resolve) => setTimeout(resolve, 700));
-          return loginResponse({ next, username, error: "用户名或密码不正确" }, 401);
+          return loginResponse({ next, username, error: "用户名或密码不正确", theme: themeOf(request) }, 401);
         }
         await clearFailures(env, request);
         return redirect(next, sessionCookieValue(env, signedIn, url));
       }
       if (account) return redirect(safeNext(url.searchParams.get("next")));
-      return loginResponse({ next: safeNext(url.searchParams.get("next")) });
+      return loginResponse({ next: safeNext(url.searchParams.get("next")), theme: themeOf(request) });
     }
 
     if (!account) {

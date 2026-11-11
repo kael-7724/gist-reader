@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Shuffle, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { BarChart3, Moon, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Settings2, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -163,6 +163,7 @@ export default function Home() {
   // 标记模式: selecting a word saves it straight to the book without showing its meaning.
   const [markMode, setMarkMode] = useState(false);
   const [wallOpen, setWallOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const readerPanelRef = useRef<HTMLElement | null>(null);
   const articleBodyRef = useRef<HTMLDivElement | null>(null);
   const lastPickRef = useRef({ text: "", at: 0 });
@@ -284,6 +285,20 @@ export default function Home() {
     if (!response.ok) return;
     const data = await json<{ reviewedAt: string; reviewCount: number; srsStability: number; srsDifficulty: number }>(response);
     setWords((items) => items.map((item) => item.id === id ? { ...item, ...data } : item));
+  }
+
+  useEffect(() => {
+    if (document.documentElement.dataset.theme === "light") queueMicrotask(() => setTheme("light"));
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    const root = document.documentElement;
+    root.classList.add("theme-fade");
+    root.dataset.theme = next;
+    document.cookie = `gist_theme=${next}; path=/; max-age=31536000; samesite=lax`;
+    setTheme(next);
+    window.setTimeout(() => root.classList.remove("theme-fade"), 420);
   }
 
   function toggleMarkMode() {
@@ -775,7 +790,7 @@ export default function Home() {
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel disabled={deletingWords}>取消</AlertDialogCancel>
-                        <Button className="bg-destructive text-black hover:bg-destructive/85" disabled={!selectedWordIds.size || deletingWords} onClick={() => void deleteSelectedWords()}>
+                        <Button className="bg-destructive text-background hover:bg-destructive/85" disabled={!selectedWordIds.size || deletingWords} onClick={() => void deleteSelectedWords()}>
                           {deletingWords ? <><Loader2 className="size-4 animate-spin" />正在删除</> : "确认删除"}
                         </Button>
                       </AlertDialogFooter>
@@ -808,7 +823,7 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      <Toaster position="top-center" theme="dark" />
+      <Toaster position="top-center" theme={theme} />
       {wallOpen && <WordWall pool={filteredWords.map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">
@@ -852,6 +867,7 @@ export default function Home() {
                 <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="粘贴正文" className="min-h-56 rounded-xl leading-7" />
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
+            <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "白天模式" : "黑夜模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</span></Button>
           </div>
         </header>
 
@@ -869,7 +885,7 @@ export default function Home() {
 
         <div className={`article-dock ${articleDockOpen ? "open" : ""}${selection && tab === "read" ? " is-hidden" : ""}`} onMouseEnter={() => setArticleDockOpen(true)} onMouseLeave={() => setArticleDockOpen(false)} onFocusCapture={() => setArticleDockOpen(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArticleDockOpen(false); }}>
           <button type="button" className="article-dock-trigger" onClick={() => setArticleDockOpen((open) => !open)} aria-expanded={articleDockOpen} aria-label="选择文章"><FileText className="size-5" /><span>{activeArticle ? articleLabel(activeArticle) : ""}</span></button>
-          <div className="article-dock-list" ref={dockListRef}>{articles.map((article) => <div className={`dock-article ${activeArticleId === article.id ? "active" : ""}`} key={article.id}><button type="button" className="dock-article-button" tabIndex={articleDockOpen ? 0 : -1} onClick={() => { setActiveArticleId(article.id); setTab("read"); setArticleDockOpen(false); }}><FileText className="size-4" /><span title={article.title}>{articleLabel(article)}</span>{article.id > 0 && <small className="dock-date">{formatImportDate(article.createdAt, true)}</small>}</button>{article.id > 0 && <AlertDialog><AlertDialogTrigger asChild><button type="button" tabIndex={articleDockOpen ? 0 : -1} className="dock-delete" aria-label={`删除《${articleLabel(article)}》`}><Trash2 className="size-3.5" /></button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除《{articleLabel(article)}》？</AlertDialogTitle><AlertDialogDescription>文章正文和预翻译缓存会被删除，已经收藏到单词本、句子本的内容会保留。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction className="bg-destructive text-black hover:bg-destructive/85" onClick={() => void removeArticle(article.id)}>确认删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}</div>)}</div>
+          <div className="article-dock-list" ref={dockListRef}>{articles.map((article) => <div className={`dock-article ${activeArticleId === article.id ? "active" : ""}`} key={article.id}><button type="button" className="dock-article-button" tabIndex={articleDockOpen ? 0 : -1} onClick={() => { setActiveArticleId(article.id); setTab("read"); setArticleDockOpen(false); }}><FileText className="size-4" /><span title={article.title}>{articleLabel(article)}</span>{article.id > 0 && <small className="dock-date">{formatImportDate(article.createdAt, true)}</small>}</button>{article.id > 0 && <AlertDialog><AlertDialogTrigger asChild><button type="button" tabIndex={articleDockOpen ? 0 : -1} className="dock-delete" aria-label={`删除《${articleLabel(article)}》`}><Trash2 className="size-3.5" /></button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>删除《{articleLabel(article)}》？</AlertDialogTitle><AlertDialogDescription>文章正文和预翻译缓存会被删除，已经收藏到单词本、句子本的内容会保留。</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>取消</AlertDialogCancel><AlertDialogAction className="bg-destructive text-background hover:bg-destructive/85" onClick={() => void removeArticle(article.id)}>确认删除</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>}</div>)}</div>
         </div>
       </Tabs>
     </main>

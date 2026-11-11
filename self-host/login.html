@@ -1,14 +1,15 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="{{THEME}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <title>登录 · Gist</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root { --bg:#000; --fg:#fff; --muted:#8f8f8f; --line:#2c2c2c; --line-strong:#5a5a5a; --error:#ff8a7a; }
+  :root[data-theme="light"] { --bg:#fff; --fg:#000; --muted:#5f5f5f; --line:#d4d4d4; --line-strong:#9a9a9a; --error:#c4262e; }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
@@ -20,6 +21,7 @@
   main { width: 100%; max-width: 360px; }
   .brand { display: flex; flex-direction: column; align-items: center; text-align: center; margin-bottom: 40px; }
   .mark { display: block; width: 72px; height: 72px; border-radius: 16px; }
+  :root[data-theme="light"] .mark { filter: invert(1); }
   form { display: grid; gap: 14px; }
   label { display: grid; gap: 7px; font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--muted); }
   input {
@@ -30,7 +32,7 @@
   }
   input:hover { border-color: var(--line-strong); }
   input:focus { outline: none; border-color: var(--fg); }
-  input:-webkit-autofill { -webkit-text-fill-color: var(--fg); -webkit-box-shadow: 0 0 0 40px #000 inset; caret-color: var(--fg); }
+  input:-webkit-autofill { -webkit-text-fill-color: var(--fg); -webkit-box-shadow: 0 0 0 40px var(--bg) inset; caret-color: var(--fg); }
   button {
     margin-top: 10px; height: 48px; border: 1px solid var(--fg); border-radius: 12px;
     background: var(--fg); color: var(--bg); font: 600 15px/1 system-ui, -apple-system, "PingFang SC", sans-serif;
