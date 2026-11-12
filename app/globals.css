@@ -361,3 +361,4 @@ button{touch-action:manipulation}
 .settings-section:last-child{padding-bottom:0}
 .settings-section>h3{display:flex;align-items:center;gap:8px;margin:0 0 2px;font-size:15px;font-weight:600;color:var(--foreground)}
 .settings-state{margin-left:auto;font-size:12px;font-weight:400;color:var(--muted-foreground)}
+.ai-model-row{display:flex;gap:8px;margin-top:4px}
