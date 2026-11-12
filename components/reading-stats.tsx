@@ -142,7 +142,7 @@ export function ReadingStats({ active, onOpenArticle, children }: { active: bool
                 <button type="button" key={day.day} className={`stats-bar ${day.day === stats.today ? "today" : ""} ${hovered === index ? "hovered" : ""}`}
                   onMouseEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)}
                   aria-label={`${dayLabel(day.day, stats.today)}，阅读 ${durationText(day.seconds)}，收藏 ${day.words} 个单词、${day.sentences} 个句子`}>
-                  <span className="stats-bar-fill" style={{ height: `${height}%` }} />
+                  <span className="stats-bar-fill" style={{ height: `${height}%`, animationDelay: `${index * 14}ms` }} />
                 </button>
               );
             })}

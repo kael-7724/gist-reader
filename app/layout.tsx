@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/newsreader/opsz.css";
+import "@fontsource/noto-serif-sc/500.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

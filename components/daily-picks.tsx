@@ -52,7 +52,7 @@ export function DailyPicks({ onOpen }: { onOpen: (article: PickedArticle, added:
   return (
     <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (value) void load(); }}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="relative rounded-xl" aria-label="今日精选" title="今日精选"><Newspaper className="size-4" />{fresh && <span className="connection-dot" />}</Button>
+        <Button variant="ghost" className="relative rounded-xl" aria-label="今日精选" title="今日精选"><Newspaper className="size-4" />{fresh && <span className="connection-dot" />}</Button>
       </DialogTrigger>
       <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-xl">
         <DialogHeader>

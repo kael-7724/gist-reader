@@ -1,7 +1,8 @@
 "use client";
 
+import { flushSync } from "react-dom";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Highlighter, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2, Type } from "lucide-react";
+import { ALargeSmall, BarChart3, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -14,6 +15,8 @@ import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,8 +30,15 @@ type SavedSentence = { id: number; articleId?: number | null; text: string; tran
 type SelectionKind = "word" | "phrase" | "sentence";
 type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean; saved?: boolean };
 type TranslationMode = "realtime";
-type ReadingSettings = { fontSize: number; lineHeight: number; fontFamily: "serif" | "sans" | "georgia"; letterSpacing: number };
-const defaultReadingSettings: ReadingSettings = { fontSize: 20, lineHeight: 1.95, fontFamily: "georgia", letterSpacing: 0 };
+type ReadingSettings = { fontSize: number; lineHeight: number; fontFamily: "newsreader" | "serif" | "sans" | "georgia"; letterSpacing: number };
+const defaultReadingSettings: ReadingSettings = { fontSize: 20, lineHeight: 1.85, fontFamily: "newsreader", letterSpacing: 0 };
+const READING_FONTS: Record<ReadingSettings["fontFamily"], string> = {
+  newsreader: '"Newsreader Variable", Georgia, "Noto Serif SC", serif',
+  georgia: 'Georgia, "Times New Roman", "Noto Serif SC", serif',
+  serif: '"Times New Roman", "Noto Serif", "Noto Serif SC", serif',
+  sans: 'Arial, "Noto Sans", sans-serif',
+};
+const READING_SETTINGS_KEY = "gist-reading-settings-v2";
 
 function articleLabel(article: Pick<Article, "title" | "shortTitle">) {
   return article.shortTitle?.trim() || article.title;
@@ -156,6 +166,7 @@ export default function Home() {
   const translationRequestRef = useRef(0);
   const translationMode: TranslationMode = "realtime";
   const [readingOpen, setReadingOpen] = useState(false);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
   const [readingSettings, setReadingSettings] = useState<ReadingSettings>(defaultReadingSettings);
   const [aiConnected, setAiConnected] = useState(false);
   const [aiShared, setAiShared] = useState(false);
@@ -208,6 +219,26 @@ export default function Home() {
     return article ? articleLabel(article) : fallback;
   };
   const articleParts = useMemo(() => splitArticle(activeArticle?.content || ""), [activeArticle?.content]);
+  const readingLength = useMemo(() => {
+    const tokens = articleParts.body.match(/[A-Za-z][A-Za-z'’-]*/g) ?? [];
+    const kaoyan = new Set<string>();
+    for (const token of tokens) { const lower = token.toLowerCase(); if (englishLemmaCandidates(lower).some((candidate) => kaoyanVocab.has(candidate))) kaoyan.add(lower); }
+    return { words: tokens.length, minutes: Math.max(1, Math.round(tokens.length / 180)), kaoyan: kaoyan.size };
+  }, [articleParts.body]);
+  // A hairline under the top bar that fills as the article is read.
+  const progressRef = useRef<HTMLDivElement | null>(null);
+  const progressFrame = useRef(0);
+  const trackProgress = useCallback(() => {
+    if (progressFrame.current) return;
+    progressFrame.current = requestAnimationFrame(() => {
+      progressFrame.current = 0;
+      const panel = readerPanelRef.current; const bar = progressRef.current;
+      if (!panel || !bar) return;
+      const room = panel.scrollHeight - panel.clientHeight;
+      bar.style.transform = `scaleX(${room > 8 ? Math.min(1, panel.scrollTop / room) : 0})`;
+    });
+  }, []);
+  useEffect(() => { trackProgress(); }, [activeArticle?.id, libraryLoaded, trackProgress]);
   const deepseekConnected = aiConnected;
   const formProvider = providerFor(formEndpoint);
   const formIsCustom = formProvider.id === "custom";
@@ -216,11 +247,8 @@ export default function Home() {
   filteredWords.forEach((word, index) => wordColumns[index % wordColumnCount].push(word));
   const expandedIndex = filteredWords.findIndex((word) => word.id === expandedWordId);
   const expandedColumn = expandedIndex < 0 ? -1 : expandedIndex % wordColumnCount;
-  const wordColumnWidths = Array.from({ length: wordColumnCount }, (_, index) => {
-    if (expandedColumn < 0 || wordColumnCount === 1) return "minmax(0, 1fr)";
-    const activeWidth = wordColumnCount === 2 ? 1.15 : 1.2;
-    return `minmax(0, ${index === expandedColumn ? activeWidth : (wordColumnCount - activeWidth) / (wordColumnCount - 1)}fr)`;
-  }).join(" ");
+  // Opened cards float their details over the grid, so the columns never change width.
+  const wordColumnWidths = `repeat(${wordColumnCount}, minmax(0, 1fr))`;
 
   useLayoutEffect(() => {
     const previousRects = wordMoveRectsRef.current;
@@ -278,11 +306,14 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("lexitrace-reading-settings") || "null") as Partial<ReadingSettings> | null;
+      // v2 introduced Newsreader as the default face; an older saved choice keeps its size and spacing only.
+      const current = JSON.parse(localStorage.getItem(READING_SETTINGS_KEY) || "null") as Partial<ReadingSettings> | null;
+      const legacy = current ? null : JSON.parse(localStorage.getItem("lexitrace-reading-settings") || "null") as Partial<ReadingSettings> | null;
+      const saved = current ?? (legacy ? { ...legacy, fontFamily: undefined } : null);
       if (saved) queueMicrotask(() => setReadingSettings({
         fontSize: typeof saved.fontSize === "number" ? Math.min(32, Math.max(14, saved.fontSize)) : 20,
-        lineHeight: typeof saved.lineHeight === "number" ? Math.min(2.6, Math.max(1.3, saved.lineHeight)) : 1.95,
-        fontFamily: saved.fontFamily === "serif" || saved.fontFamily === "sans" || saved.fontFamily === "georgia" ? saved.fontFamily : "georgia",
+        lineHeight: typeof saved.lineHeight === "number" ? Math.min(2.6, Math.max(1.3, saved.lineHeight)) : defaultReadingSettings.lineHeight,
+        fontFamily: saved.fontFamily && saved.fontFamily in READING_FONTS ? saved.fontFamily : "newsreader",
         letterSpacing: typeof saved.letterSpacing === "number" ? Math.min(2, Math.max(0, saved.letterSpacing)) : 0,
       }));
     } catch { /* Ignore invalid device-local preferences. */ }
@@ -311,14 +342,32 @@ export default function Home() {
     if (document.documentElement.dataset.theme === "light") queueMicrotask(() => setTheme("light"));
   }, []);
 
+  // Remember where the last tap landed so the theme change can grow out of it.
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const remember = (event: PointerEvent) => { lastPointerRef.current = { x: event.clientX, y: event.clientY }; };
+    window.addEventListener("pointerdown", remember, { capture: true, passive: true });
+    return () => window.removeEventListener("pointerdown", remember, { capture: true });
+  }, []);
+
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     const root = document.documentElement;
-    root.classList.add("theme-fade");
-    root.dataset.theme = next;
     document.cookie = `gist_theme=${next}; path=/; max-age=31536000; samesite=lax`;
-    setTheme(next);
-    window.setTimeout(() => root.classList.remove("theme-fade"), 420);
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!document.startViewTransition || reduce) {
+      root.classList.add("theme-fade");
+      root.dataset.theme = next;
+      setTheme(next);
+      window.setTimeout(() => root.classList.remove("theme-fade"), 420);
+      return;
+    }
+    const { x, y } = lastPointerRef.current ?? { x: window.innerWidth - 40, y: 28 };
+    const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    const transition = document.startViewTransition(() => { root.dataset.theme = next; flushSync(() => setTheme(next)); });
+    void transition.ready.then(() => {
+      root.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] }, { duration: 620, easing: "cubic-bezier(.65,0,.35,1)", pseudoElement: "::view-transition-new(root)" });
+    }).catch(() => undefined);
   }
 
   // Stable handlers for the word cards, so a hover or a toggle only re-renders the cards that changed.
@@ -368,7 +417,7 @@ export default function Home() {
 
   function updateReadingSettings(next: ReadingSettings) {
     setReadingSettings(next);
-    localStorage.setItem("lexitrace-reading-settings", JSON.stringify(next));
+    try { localStorage.setItem(READING_SETTINGS_KEY, JSON.stringify(next)); } catch { /* Device preference only. */ }
   }
 
   useEffect(() => {
@@ -376,7 +425,7 @@ export default function Home() {
       const loadedArticles = Array.isArray(data.articles) ? data.articles : [];
       if (loadedArticles.length) { setArticles(loadedArticles); setActiveArticleId(loadedArticles[0].id); }
       setWords(Array.isArray(data.words) ? data.words : []); setSentences(Array.isArray(data.sentences) ? data.sentences : []);
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => setLibraryLoaded(true));
     fetch("/api/maimemo/connection").then((response) => response.ok ? json<{ connected: boolean }>(response) : Promise.reject()).then((data) => setMaimemoConnected(Boolean(data.connected))).catch(() => undefined);
     fetch("/api/ai/connection").then((response) => response.ok ? json<{ connected: boolean; shared?: boolean; endpoint?: string; model?: string; thinkingMode?: string }>(response) : Promise.reject()).then((data) => { setAiConnected(Boolean(data.connected)); setAiShared(Boolean(data.shared)); if (data.endpoint) { setAiEndpoint(data.endpoint); setFormEndpoint(data.endpoint); } if (data.model) { setAiModel(data.model); setFormModel(data.model); } if (data.thinkingMode === "enabled") setAiThinkingMode("enabled"); }).catch(() => undefined);
   }, []);
@@ -888,7 +937,7 @@ export default function Home() {
                 </>
               )}
             />
-            {filteredWords.length ? <div ref={setWordGridElement} className={`word-grid ${expandedColumn >= 0 ? "has-expanded" : ""} ${translationsHidden ? "translations-hidden" : ""}`} style={{ gridTemplateColumns: wordColumnWidths }}>
+            {!libraryLoaded ? <div className="skeleton-words" role="status" aria-label="正在加载">{Array.from({ length: 15 }, (_, index) => <div className="sk-word" key={index}><span className="sk" style={{ width: `${50 + (index * 37) % 40}%` }} /><span className="sk short" style={{ width: `${30 + (index * 23) % 35}%` }} /></div>)}</div> : filteredWords.length ? <div ref={setWordGridElement} className={`word-grid ${expandedColumn >= 0 ? "has-expanded" : ""} ${translationsHidden ? "translations-hidden" : ""}`} style={{ gridTemplateColumns: wordColumnWidths }}>
             {wordColumns.map((column, columnIndex) => <div className="word-column" key={columnIndex}>{column.map((word) => selectedWordIds === null ? <SavedWordCard key={word.id} word={word} open={expandedWordId === word.id} translationVisible={!translationsHidden || revealedWordIds.includes(word.id)} aiConnected={deepseekConnected} enriching={enrichingIds.includes(word.id)} syncing={syncingIds.includes(word.id)} actions={wordActions} /> : (
                   <label key={word.id} className="word-card word-row">
                     <span className="word-row-trigger word-selection">
@@ -918,18 +967,19 @@ export default function Home() {
             <TabsTrigger value="stats" className="reader-tab" aria-label="统计" title="阅读统计"><BarChart3 /><span className="reader-tab-label">统计</span></TabsTrigger>
           </TabsList>
           <div className="topbar-actions">
-            <Button variant={kaoyanOn ? "default" : "outline"} className="rounded-xl" aria-pressed={kaoyanOn} onClick={toggleKaoyan} aria-label={kaoyanOn ? "隐藏考研词标记" : "显示考研词标记"} title="考研词"><Highlighter className="size-4" /><span className="button-label">考研词</span></Button>
-            <Button variant={markMode ? "default" : "outline"} className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式" : "查词模式"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
-            <Dialog open={readingOpen} onOpenChange={setReadingOpen}><DialogTrigger asChild><Button variant="outline" className="rounded-xl" aria-label="阅读设置" title="阅读设置"><Type className="size-4" /><span className="button-label">阅读设置</span></Button></DialogTrigger>
-              <DialogContent className="rounded-xl sm:max-w-md"><DialogHeader><DialogTitle className="text-2xl">阅读设置</DialogTitle><DialogDescription className="sr-only">字号、行距、字距和字体</DialogDescription></DialogHeader>
+            <Button variant="ghost" className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式" : "查词模式"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
+            <Popover open={readingOpen} onOpenChange={setReadingOpen}><PopoverTrigger asChild><Button variant="ghost" className="rounded-xl" aria-label="阅读设置" title="阅读设置"><ALargeSmall className="size-[18px]" /></Button></PopoverTrigger>
+              <PopoverContent align="end" sideOffset={8} className="aa-panel">
+                <div className="aa-row"><span>考研词标记</span><Switch checked={kaoyanOn} onCheckedChange={toggleKaoyan} aria-label="考研词标记" /></div>
+                <div className="aa-row aa-theme-row"><span>黑夜模式</span><Switch checked={theme === "dark"} onCheckedChange={toggleTheme} aria-label="黑夜模式" /></div>
                 <div className="reading-controls"><label>字号 <strong>{readingSettings.fontSize}px</strong><input type="range" min="14" max="32" step="1" value={readingSettings.fontSize} onChange={(event) => updateReadingSettings({ ...readingSettings, fontSize: Number(event.target.value) })} /></label>
                   <label>行距 <strong>{readingSettings.lineHeight.toFixed(2)}</strong><input type="range" min="1.3" max="2.6" step="0.05" value={readingSettings.lineHeight} onChange={(event) => updateReadingSettings({ ...readingSettings, lineHeight: Number(event.target.value) })} /></label>
                   <label>字距 <strong>{readingSettings.letterSpacing.toFixed(1)}px</strong><input type="range" min="0" max="2" step="0.1" value={readingSettings.letterSpacing} onChange={(event) => updateReadingSettings({ ...readingSettings, letterSpacing: Number(event.target.value) })} /></label>
-                  <label>字体 <select value={readingSettings.fontFamily} onChange={(event) => updateReadingSettings({ ...readingSettings, fontFamily: event.target.value as ReadingSettings["fontFamily"] })}><option value="georgia">Georgia 衬线</option><option value="serif">系统衬线</option><option value="sans">系统无衬线</option></select></label>
-                  <Button variant="outline" className="rounded-xl" onClick={() => updateReadingSettings(defaultReadingSettings)}>恢复默认</Button></div>
-              </DialogContent></Dialog>
+                  <label>字体 <select value={readingSettings.fontFamily} onChange={(event) => updateReadingSettings({ ...readingSettings, fontFamily: event.target.value as ReadingSettings["fontFamily"] })}><option value="newsreader">Newsreader</option><option value="georgia">Georgia</option><option value="serif">系统衬线</option><option value="sans">无衬线</option></select></label>
+                  <Button variant="ghost" className="aa-reset" onClick={() => updateReadingSettings(defaultReadingSettings)}>恢复默认</Button></div>
+              </PopoverContent></Popover>
             <DailyPicks onOpen={openPicked} />
-            <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
+            <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button variant="ghost" className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
               <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
                 <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">TXT / DOCX</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
                 <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="标题" className="h-11 rounded-xl" />
@@ -937,8 +987,8 @@ export default function Home() {
                 <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="粘贴正文" className="min-h-56 rounded-xl leading-7" />
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
-            <Button variant="outline" className="rounded-xl" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="outline" className="relative rounded-xl" aria-label="设置" title="设置"><Settings className="size-4" /></Button></DialogTrigger>
+            <Button variant="ghost" className="rounded-xl theme-toggle" onClick={toggleTheme} aria-label={theme === "dark" ? "切换到白天模式" : "切换到黑夜模式"} title={theme === "dark" ? "黑夜模式" : "白天模式"}><span className="mode-icon" key={theme}>{theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}</span></Button>
+            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}><DialogTrigger asChild><Button variant="ghost" className="relative rounded-xl" aria-label="设置" title="设置"><Settings className="size-4" /></Button></DialogTrigger>
               <DialogContent className="settings-dialog max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-lg"><DialogHeader><DialogTitle className="text-2xl">设置</DialogTitle><DialogDescription className="sr-only">AI 模型、墨墨背单词和账户</DialogDescription></DialogHeader>
                 <section className="settings-section" id="settings-deepseek"><h3><Sparkles className="size-4" />AI 模型{aiConnected && <span className="settings-state">{aiShared ? "使用共享 Key" : `${providerFor(aiEndpoint).id === "custom" ? "" : `${providerFor(aiEndpoint).name} · `}${aiModel}`}</span>}</h3>
                 {aiShared && <p className="security-note">现在用的是管理员共享的 DeepSeek Key，可以直接划词翻译。选好服务商、填入你自己的 Key 并保存后，就改用你自己的额度。</p>}
@@ -961,9 +1011,9 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className="reader-layout"><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`}><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
+        <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className="reader-layout" style={{ "--measure": `${Math.round(Math.min(860, Math.max(560, readingSettings.fontSize * 34)))}px` } as React.CSSProperties}><div className="read-progress" ref={progressRef} aria-hidden="true" /><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`} onScroll={trackProgress}>{!libraryLoaded ? <div className="skeleton-reader" aria-label="正在加载" role="status"><span className="sk sk-chip" /><span className="sk sk-title" /><span className="sk sk-title short" />{[0, 1, 2].map((block) => <div className="sk-para" key={block}>{[92, 100, 96, 88, 64].map((width, line) => <span className="sk sk-line" style={{ width: `${width}%` }} key={line} />)}</div>)}</div> : <><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
-    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: readingSettings.fontFamily === "georgia" ? 'Georgia, "Times New Roman", serif' : readingSettings.fontFamily === "serif" ? '"Times New Roman", "Noto Serif", serif' : 'Arial, "Noto Sans", sans-serif' }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></article>
+    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></>}</article>
           <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
 
           <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>
