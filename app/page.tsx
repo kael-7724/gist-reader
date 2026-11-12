@@ -603,6 +603,20 @@ export default function Home() {
 
   function handleSelection() {
     const current = window.getSelection();
+    // The drop cap is a separate float, so browsers may stop a selection at its edge: widen it to the whole first word.
+    if (current && current.rangeCount) {
+      const capWord = (node: Node) => (node.nodeType === 1 ? node as Element : node.parentElement)?.closest(".drop-cap")?.parentElement ?? null;
+      const range = current.getRangeAt(0);
+      const startWord = capWord(range.startContainer);
+      const endWord = capWord(range.endContainer);
+      if (startWord || endWord) {
+        const widened = range.cloneRange();
+        if (startWord) widened.setStartBefore(startWord);
+        if (endWord) widened.setEndAfter(endWord);
+        current.removeAllRanges();
+        current.addRange(widened);
+      }
+    }
     const selected = current?.toString().trim().replace(/\s+/g, " ") || "";
     if (!selected || selected.length > 700) return;
     if (current?.anchorNode && articleBodyRef.current && !articleBodyRef.current.contains(current.anchorNode)) return;
@@ -1087,7 +1101,7 @@ export default function Home() {
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
     : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <div className="read-length-row"><p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p><button type="button" className="bilingual-toggle" aria-pressed={bilingual} onClick={() => { if (!bilingual && !aiConnected) { openSettings("deepseek"); toast.info("请先在设置里连接 AI 模型"); return; } toggleBilingual(); }} title="全文对照翻译（快捷键 T）"><Columns2 className="size-[15px]" /><span>{bilingual ? "关闭对照" : "全文对照"}</span></button></div>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{paragraphs.map((paragraph, index) => {
               const entry = bilingual && activeArticle ? paraTranslations[paraKey(activeArticle.id, paragraph)] : undefined;
-              return <Fragment key={index}><AnnotatedParagraph text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />
+              return <Fragment key={index}><AnnotatedParagraph text={paragraph} dropCap={index === 0} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />
                 {bilingual && activeArticle && paragraph.trim() && <div className={`para-zh${entry?.error ? " is-error" : ""}${entry?.text ? " is-ready" : ""}`} lang="zh-CN" onMouseUp={(event) => event.stopPropagation()}>
                   {!aiConnected ? <span className="para-zh-note">连接 AI 模型后显示译文</span>
                     : entry?.text ? entry.text

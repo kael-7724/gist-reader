@@ -490,7 +490,8 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .article-source+.read-length,.read-length+.article-source{margin-top:6px}
 
 /* Drop cap on the opening paragraph */
-.article-body>p:first-child:not(.article-subheading)::first-letter{float:left;margin:.07em .09em 0 0;font-family:var(--serif-en);font-size:3.35em;line-height:.8;font-weight:500;font-optical-sizing:auto}
+.drop-cap{float:left;margin:.07em .09em 0 0;font-family:var(--serif-en);font-size:3.35em;line-height:.8;font-weight:500;font-style:normal;font-optical-sizing:auto;color:var(--foreground)}
+.saved-word .drop-cap{background:color-mix(in oklab,var(--foreground) 11%,transparent);border-radius:.06em}
 
 /* End mark */
 .article-body::after{content:"⁂";display:block;margin:2.2em 0 0;text-align:center;font-size:.9em;letter-spacing:.2em;color:var(--muted-foreground);opacity:.7}
