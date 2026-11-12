@@ -1,8 +1,8 @@
 "use client";
 
 import { flushSync } from "react-dom";
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ALargeSmall, BarChart3, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
+import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ALargeSmall, BarChart3, Columns2, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -240,6 +240,77 @@ export default function Home() {
   }, []);
   useEffect(() => { trackProgress(); }, [activeArticle?.id, libraryLoaded, trackProgress]);
   const deepseekConnected = aiConnected;
+  // Side-by-side translation of every paragraph.
+  const [bilingual, setBilingual] = useState(false);
+  const [paraTranslations, setParaTranslations] = useState<Record<string, { text?: string; error?: string }>>({});
+  const paraInflight = useRef(new Set<string>());
+  const [panelWidth, setPanelWidth] = useState(0);
+  const paragraphs = useMemo(() => articleParts.body.split(/\n{2,}/), [articleParts.body]);
+  const paraKey = (articleId: number, text: string) => `${articleId}\u0000${text}`;
+  useEffect(() => { try { if (localStorage.getItem("gist-bilingual") === "1") queueMicrotask(() => setBilingual(true)); } catch { /* Device preference only. */ } }, []);
+  useEffect(() => {
+    const panel = readerPanelRef.current;
+    if (!panel) return;
+    const observer = new ResizeObserver(() => setPanelWidth(panel.clientWidth));
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [libraryLoaded]);
+  const toggleBilingual = useCallback((force?: boolean) => {
+    setBilingual((current) => {
+      const next = force ?? !current;
+      try { localStorage.setItem("gist-bilingual", next ? "1" : "0"); } catch { /* Device preference only. */ }
+      return next;
+    });
+  }, []);
+  const translateParagraph = useCallback(async (articleId: number, index: number, text: string, previous: string) => {
+    const key = paraKey(articleId, text);
+    if (paraInflight.current.has(key)) return;
+    paraInflight.current.add(key);
+    setParaTranslations((current) => { const next = { ...current }; delete next[key]; return next; });
+    try {
+      const response = await fetch("/api/translate/paragraph", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ articleId, text, previous }) });
+      const data = await response.json() as { translation?: string; error?: string };
+      setParaTranslations((current) => ({ ...current, [key]: response.ok && data.translation ? { text: data.translation } : { error: data.error || "翻译失败" } }));
+    } catch {
+      setParaTranslations((current) => ({ ...current, [key]: { error: "网络出错" } }));
+    } finally {
+      paraInflight.current.delete(key);
+    }
+    void index;
+  }, []);
+  useEffect(() => {
+    if (!bilingual || !libraryLoaded || !activeArticle || !aiConnected) return;
+    const articleId = activeArticle.id;
+    const pending = paragraphs.map((text, index) => ({ text, index })).filter(({ text }) => text.trim() && !paraTranslations[paraKey(articleId, text)] && !paraInflight.current.has(paraKey(articleId, text)));
+    if (!pending.length) return;
+    let cancelled = false;
+    // Three at a time, top to bottom, so the first screen fills in first.
+    const queue = [...pending];
+    const worker = async () => {
+      while (!cancelled && queue.length) {
+        const item = queue.shift()!;
+        await translateParagraph(articleId, item.index, item.text, paragraphs[item.index - 1] || "");
+      }
+    };
+    void Promise.all([worker(), worker(), worker()]);
+    return () => { cancelled = true; };
+    // paraTranslations is read only to skip finished paragraphs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bilingual, libraryLoaded, activeArticle?.id, aiConnected, paragraphs, translateParagraph]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "t" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (tab !== "read") return;
+      toggleBilingual();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, toggleBilingual]);
+  const readingMeasure = Math.round(Math.min(860, Math.max(560, readingSettings.fontSize * 34)));
+  const sideWidth = Math.min(460, panelWidth - 56 - readingMeasure - 56);
+  const sideBySide = bilingual && sideWidth >= 280;
   const formProvider = providerFor(formEndpoint);
   const formIsCustom = formProvider.id === "custom";
   const keyNeeded = !aiConnected || aiShared || formEndpoint !== aiEndpoint;
@@ -535,6 +606,7 @@ export default function Home() {
     const selected = current?.toString().trim().replace(/\s+/g, " ") || "";
     if (!selected || selected.length > 700) return;
     if (current?.anchorNode && articleBodyRef.current && !articleBodyRef.current.contains(current.anchorNode)) return;
+    if (current?.anchorNode && (current.anchorNode.nodeType === 1 ? current.anchorNode as Element : current.anchorNode.parentElement)?.closest(".para-zh")) return;
     const now = Date.now();
     if (lastPickRef.current.text === selected && now - lastPickRef.current.at < 900) { current?.removeAllRanges(); return; }
     lastPickRef.current = { text: selected, at: now };
@@ -970,7 +1042,7 @@ export default function Home() {
             <Button variant="ghost" className="rounded-xl mode-toggle" aria-pressed={markMode} onClick={toggleMarkMode} aria-label={markMode ? "标记模式：划词直接收藏，点击切换到查词模式" : "查词模式：划词显示释义，点击切换到标记模式"} title={markMode ? "标记模式" : "查词模式"}><span className="mode-icon" key={markMode ? "mark" : "look"}>{markMode ? <BookmarkPlus className="size-4" /> : <Languages className="size-4" />}</span><span className="button-label">{markMode ? "标记" : "查词"}</span></Button>
             <Popover open={readingOpen} onOpenChange={setReadingOpen}><PopoverTrigger asChild><Button variant="ghost" className="rounded-xl" aria-label="阅读设置" title="阅读设置"><ALargeSmall className="size-[18px]" /></Button></PopoverTrigger>
               <PopoverContent align="end" sideOffset={8} className="aa-panel">
-                <div className="aa-row"><span>考研词标记</span><Switch checked={kaoyanOn} onCheckedChange={toggleKaoyan} aria-label="考研词标记" /></div>
+                <div className="aa-row"><span>全文对照翻译</span><Switch checked={bilingual} onCheckedChange={(checked) => toggleBilingual(checked)} aria-label="全文对照翻译" /></div><div className="aa-row"><span>考研词标记</span><Switch checked={kaoyanOn} onCheckedChange={toggleKaoyan} aria-label="考研词标记" /></div>
                 <div className="aa-row aa-theme-row"><span>黑夜模式</span><Switch checked={theme === "dark"} onCheckedChange={toggleTheme} aria-label="黑夜模式" /></div>
                 <div className="reading-controls"><label>字号 <strong>{readingSettings.fontSize}px</strong><input type="range" min="14" max="32" step="1" value={readingSettings.fontSize} onChange={(event) => updateReadingSettings({ ...readingSettings, fontSize: Number(event.target.value) })} /></label>
                   <label>行距 <strong>{readingSettings.lineHeight.toFixed(2)}</strong><input type="range" min="1.3" max="2.6" step="0.05" value={readingSettings.lineHeight} onChange={(event) => updateReadingSettings({ ...readingSettings, lineHeight: Number(event.target.value) })} /></label>
@@ -1011,9 +1083,18 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className="reader-layout" style={{ "--measure": `${Math.round(Math.min(860, Math.max(560, readingSettings.fontSize * 34)))}px` } as React.CSSProperties}><div className="read-progress" ref={progressRef} aria-hidden="true" /><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`} onScroll={trackProgress}>{!libraryLoaded ? <div className="skeleton-reader" aria-label="正在加载" role="status"><span className="sk sk-chip" /><span className="sk sk-title" /><span className="sk sk-title short" />{[0, 1, 2].map((block) => <div className="sk-para" key={block}>{[92, 100, 96, 88, 64].map((width, line) => <span className="sk sk-line" style={{ width: `${width}%` }} key={line} />)}</div>)}</div> : <><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
+        <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className={`reader-layout${bilingual ? ` bilingual ${sideBySide ? "side" : "stacked"}` : ""}`} style={{ "--measure": `${readingMeasure}px`, "--tw": `${Math.max(280, sideWidth)}px` } as React.CSSProperties}><div className="read-progress" ref={progressRef} aria-hidden="true" /><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`} onScroll={trackProgress}>{!libraryLoaded ? <div className="skeleton-reader" aria-label="正在加载" role="status"><span className="sk sk-chip" /><span className="sk sk-title" /><span className="sk sk-title short" />{[0, 1, 2].map((block) => <div className="sk-para" key={block}>{[92, 100, 96, 88, 64].map((width, line) => <span className="sk sk-line" style={{ width: `${width}%` }} key={line} />)}</div>)}</div> : <><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
-    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{articleParts.body.split(/\n{2,}/).map((paragraph, index) => <AnnotatedParagraph key={index} text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />)}</div></>}</article>
+    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <div className="read-length-row"><p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p><button type="button" className="bilingual-toggle" aria-pressed={bilingual} onClick={() => { if (!bilingual && !aiConnected) { openSettings("deepseek"); toast.info("请先在设置里连接 AI 模型"); return; } toggleBilingual(); }} title="全文对照翻译（快捷键 T）"><Columns2 className="size-[15px]" /><span>{bilingual ? "关闭对照" : "全文对照"}</span></button></div>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{paragraphs.map((paragraph, index) => {
+              const entry = bilingual && activeArticle ? paraTranslations[paraKey(activeArticle.id, paragraph)] : undefined;
+              return <Fragment key={index}><AnnotatedParagraph text={paragraph} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />
+                {bilingual && activeArticle && paragraph.trim() && <div className={`para-zh${entry?.error ? " is-error" : ""}${entry?.text ? " is-ready" : ""}`} lang="zh-CN" onMouseUp={(event) => event.stopPropagation()}>
+                  {!aiConnected ? <span className="para-zh-note">连接 AI 模型后显示译文</span>
+                    : entry?.text ? entry.text
+                    : entry?.error ? <span className="para-zh-note">{entry.error}<button type="button" onClick={() => void translateParagraph(activeArticle.id, index, paragraph, paragraphs[index - 1] || "")}><RotateCw className="size-3" />重试</button></span>
+                    : <span className="para-zh-loading" aria-label="正在翻译"><i /><i /><i /></span>}
+                </div>}</Fragment>;
+            })}</div></>}</article>
           <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
 
           <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>

@@ -534,3 +534,41 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 *,*::before,*::after{scrollbar-width:none;-ms-overflow-style:none}
 *::-webkit-scrollbar{display:none;width:0;height:0}
 .reader-panel,.library-page{scrollbar-gutter:auto}
+
+/* ── Side-by-side translation ── */
+.read-length-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px}
+.read-length-row .read-length{margin:0}
+.bilingual-toggle{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px 0 9px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--muted-foreground);font-size:12.5px;cursor:pointer;transition:background-color .2s,color .2s,border-color .2s}
+.bilingual-toggle:hover{color:var(--foreground);border-color:var(--ring)}
+.bilingual-toggle[aria-pressed=true]{background:var(--foreground);border-color:var(--foreground);color:var(--background)}
+.bilingual-toggle svg{transition:transform .45s cubic-bezier(.34,1.4,.64,1)}
+.bilingual-toggle[aria-pressed=true] svg{transform:rotate(180deg)}
+
+.reader-heading,.article-body{transition:max-width .6s cubic-bezier(.65,0,.35,1),padding .6s cubic-bezier(.65,0,.35,1)}
+.article-body{display:grid;grid-template-columns:minmax(0,1fr) 0px;column-gap:0;transition:max-width .6s cubic-bezier(.65,0,.35,1),grid-template-columns .6s cubic-bezier(.65,0,.35,1),column-gap .6s cubic-bezier(.65,0,.35,1)}
+.article-body>*{grid-column:1;min-width:0}
+.article-body::after{grid-column:1/-1}
+.reader-layout.side{--tgap:56px}
+.reader-layout.side .reader-heading{max-width:calc(var(--measure) + var(--tgap) + var(--tw));padding-right:calc(var(--tgap) + var(--tw))}
+.reader-layout.side .article-body{max-width:calc(var(--measure) + var(--tgap) + var(--tw));grid-template-columns:minmax(0,1fr) var(--tw);column-gap:var(--tgap)}
+.reader-layout.side .read-progress{opacity:.55}
+
+.para-zh{position:relative;grid-column:2;margin:0 0 1.45em;font-family:var(--serif-zh);font-weight:500;font-size:.8em;line-height:1.95;letter-spacing:.02em;color:var(--muted-foreground);text-align:justify;user-select:text;transition:color .25s}
+.para-zh.is-ready{animation:zh-in .55s cubic-bezier(.22,1,.36,1) both}
+@keyframes zh-in{from{opacity:0;transform:translateX(10px);filter:blur(3px)}}
+/* a hairline links each translation to its paragraph */
+.reader-layout.side .para-zh::before{content:"";position:absolute;left:calc(var(--tgap) / -2);top:.55em;bottom:.55em;width:1px;background:var(--hairline);transition:background-color .25s}
+.reader-layout.side .article-body>p:hover+.para-zh,.reader-layout.side .para-zh:hover{color:var(--foreground)}
+.reader-layout.side .article-body>p:hover+.para-zh::before,.reader-layout.side .para-zh:hover::before{background:var(--foreground)}
+.reader-layout.bilingual .article-body>p:has(+.para-zh:hover){text-decoration:underline;text-decoration-color:color-mix(in oklab,var(--foreground) 18%,transparent);text-decoration-thickness:1px;text-underline-offset:.3em}
+.reader-layout.side .article-body>p.article-subheading+.para-zh{margin-top:1.9em;font-weight:700;font-size:.72em}
+
+/* narrow screens: translation tucks under its paragraph */
+.reader-layout.stacked .article-body>.para-zh{grid-column:1;margin:-.75em 0 1.6em;padding:.15em 0 .15em .9em;border-left:2px solid var(--border)}
+
+.para-zh-note{display:inline-flex;align-items:center;gap:8px;font-family:system-ui,sans-serif;font-size:12.5px;font-weight:400;letter-spacing:0;color:var(--muted-foreground)}
+.para-zh-note button{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:transparent;color:var(--foreground);font-size:12px;cursor:pointer}
+.para-zh-loading{display:grid;gap:.75em;padding-top:.55em}
+.para-zh-loading i{display:block;height:.62em;border-radius:4px;background:linear-gradient(90deg,var(--muted) 25%,color-mix(in oklab,var(--foreground) 10%,var(--muted)) 50%,var(--muted) 75%);background-size:240% 100%;animation:sk-shimmer 1.4s linear infinite}
+.para-zh-loading i:nth-child(2){width:88%}.para-zh-loading i:nth-child(3){width:56%}
+@media (prefers-reduced-motion:reduce){.reader-heading,.article-body{transition:none}.para-zh.is-ready,.para-zh-loading i{animation:none}}
