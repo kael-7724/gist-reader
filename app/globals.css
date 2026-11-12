@@ -529,3 +529,4 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .search-box{border-color:transparent;background:var(--muted);border-radius:12px}
 .search-box:focus-within{outline:1px solid var(--border)}
 .related-word strong{font-family:var(--serif-en);font-weight:600;font-size:1.05em}
+.word-card.word-row>.word-row-reveal{position:absolute;z-index:31}
