@@ -1115,14 +1115,14 @@ export default function Home() {
       <Dialog open={retranslateOpen} onOpenChange={(open) => { if (!retranslate.running) setRetranslateOpen(open); }}>
         <DialogContent className="retranslate-dialog sm:max-w-[440px]">
           <DialogHeader><DialogTitle>重新翻译单词本</DialogTitle>
-            <DialogDescription>按收藏时所在的句子，重新给每个单词写释义：只写这个词本身的意思，不再写它所在搭配的意思（例如 equity 是「股权；股本」，不是「私募股权」）。词组本不变。</DialogDescription></DialogHeader>
+            <DialogDescription className="sr-only">按收藏时的句子重新翻译单词释义</DialogDescription></DialogHeader>
           {retranslate.running || retranslate.finished ? (
             <div className="retranslate-progress" role="status">
               <div className="retranslate-bar"><span style={{ width: `${retranslate.total ? (retranslate.done / retranslate.total) * 100 : 0}%` }} /></div>
               <p>{retranslate.finished ? `完成：${retranslate.done - retranslate.failed} 个单词已更新${retranslate.failed ? `，${retranslate.failed} 个失败，可以再试一次` : ""}` : `正在翻译 ${retranslate.done} / ${retranslate.total}…`}</p>
               {retranslate.finished && <p className="retranslate-note">已经同步到墨墨的单词，墨墨里的释义不会跟着改。</p>}
             </div>
-          ) : <p className="retranslate-note">共 {words.filter((word) => !word.text.includes(" ")).length} 个单词，每 20 个调用一次 AI，大约 {Math.ceil(words.filter((word) => !word.text.includes(" ")).length / 20)} 次。翻译期间可以继续使用。</p>}
+          ) : <p className="retranslate-note">共 {words.filter((word) => !word.text.includes(" ")).length} 个单词，每个只保留句中的那个意思。</p>}
           <div className="retranslate-actions">
             {retranslate.finished || retranslate.running
               ? <Button className="rounded-xl" disabled={retranslate.running} onClick={() => setRetranslateOpen(false)}>{retranslate.running ? <><Loader2 className="size-4 animate-spin" />翻译中</> : "完成"}</Button>
