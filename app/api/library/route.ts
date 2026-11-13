@@ -1,6 +1,7 @@
 import { database, message, ownerId } from "@/lib/site-data";
 import { lemmatizeEnglishWord } from "@/lib/english-lemma";
 import { nextState, type Grade, type SrsState } from "@/lib/srs";
+import { aiShortTitle, sourceFooter } from "@/lib/short-title-ai";
 import { cleanShortTitle } from "@/lib/short-title";
 
 // A phrase is stored in the word book in lower case, without surrounding punctuation.
@@ -19,6 +20,9 @@ type LibraryPayload = {
   context?: string;
   articleId?: number;
   articleTitle?: string;
+  publisher?: string;
+  publishedDate?: string;
+  sourceUrl?: string;
 };
 
 export async function GET(request: Request) {
@@ -49,7 +53,9 @@ export async function POST(request: Request) {
       const title = payload.title?.trim().slice(0, 180) || "";
       const content = payload.content?.trim().slice(0, 200000) || "";
       if (!title || !content) return Response.json({ error: "标题和正文不能为空" }, { status: 400 });
-      const created = await db.prepare("INSERT INTO articles (owner_id, title, short_title, content, translation_provider) VALUES (?, ?, ?, ?, 'deepseek') RETURNING id, title, short_title AS shortTitle, content, translation_status AS translationStatus, translation_provider AS translationProvider, translation_error AS translationError, translated_at AS translatedAt, created_at AS createdAt").bind(owner, title, cleanShortTitle(payload.shortTitle), content).first();
+      const body = content + sourceFooter(payload.publisher || "", payload.publishedDate || "", payload.sourceUrl || "");
+      const shortTitle = cleanShortTitle(payload.shortTitle) || await aiShortTitle(request, owner, title, content);
+      const created = await db.prepare("INSERT INTO articles (owner_id, title, short_title, content, translation_provider) VALUES (?, ?, ?, ?, 'deepseek') RETURNING id, title, short_title AS shortTitle, content, translation_status AS translationStatus, translation_provider AS translationProvider, translation_error AS translationError, translated_at AS translatedAt, created_at AS createdAt").bind(owner, title, shortTitle || "", body.slice(0, 200000)).first();
       return Response.json({ article: created }, { status: 201 });
     }
     if (payload.action === "save-selection") {

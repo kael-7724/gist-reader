@@ -138,6 +138,10 @@ export default function Home() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [articleDockOpen, setArticleDockOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  const [draftPublisher, setDraftPublisher] = useState("");
+  const [draftDate, setDraftDate] = useState("");
+  const [draftUrl, setDraftUrl] = useState("");
+  const [readingFile, setReadingFile] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -682,14 +686,29 @@ export default function Home() {
   }
 
   async function importFile(file: File) {
-    const isDocx = file.name.toLowerCase().endsWith(".docx");
-    if (!isDocx && !file.name.toLowerCase().endsWith(".txt")) { toast.error("第一版支持 TXT 和 DOCX 文件"); return; }
-    setDraftTitle(file.name.replace(/\.(txt|docx)$/i, ""));
-    if (isDocx) {
-      const mammoth = await import("mammoth/mammoth.browser");
-      const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
-      setDraftText(result.value.trim());
-    } else setDraftText(await file.text());
+    const name = file.name.toLowerCase();
+    const kind = name.endsWith(".pdf") ? "pdf" : name.endsWith(".docx") ? "docx" : name.endsWith(".txt") ? "txt" : "";
+    if (!kind) { toast.error("支持 PDF、DOCX 和 TXT 文件"); return; }
+    setReadingFile(true);
+    try {
+      if (kind === "pdf") {
+        const { extractPdf } = await import("@/lib/pdf-extract");
+        const pdf = await extractPdf(file);
+        if (pdf.words < 30) throw new Error("PDF 里几乎没有英文正文，可能是扫描图片");
+        setDraftTitle(pdf.title); setDraftText(pdf.content);
+        setDraftPublisher(pdf.publisher); setDraftDate(pdf.publishedDate); setDraftUrl(pdf.sourceUrl);
+        toast.success(`已读取 PDF · ${pdf.pages} 页 · ${pdf.words.toLocaleString("en-US")} 词，检查一下再开始阅读`);
+        return;
+      }
+      setDraftTitle(file.name.replace(/\.(txt|docx)$/i, ""));
+      if (kind === "docx") {
+        const mammoth = await import("mammoth/mammoth.browser");
+        const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+        setDraftText(result.value.trim());
+      } else setDraftText(await file.text());
+    } catch (error) {
+      toast.error(error instanceof Error && error.message ? error.message : "文件读取失败");
+    } finally { setReadingFile(false); }
   }
 
   function openPicked(article: Article, added: boolean) {
@@ -707,11 +726,11 @@ export default function Home() {
     if (!draftTitle.trim() || !draftText.trim()) { toast.error("请填写标题和文章内容"); return; }
     setSaving(true);
     try {
-      const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "create-article", title: draftTitle, shortTitle: draftShort, content: draftText }) });
+      const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "create-article", title: draftTitle, shortTitle: draftShort, content: draftText, publisher: draftPublisher, publishedDate: draftDate, sourceUrl: draftUrl }) });
       const data = await json<{ error?: string; article: Article }>(response);
       if (!response.ok) throw new Error(data.error);
       setArticles((items) => [data.article, ...items.filter((item) => item.id !== 0)]); setActiveArticleId(data.article.id);
-      setDraftTitle(""); setDraftText(""); setDraftShort(""); setUploadOpen(false); setTab("read");
+      setDraftTitle(""); setDraftText(""); setDraftShort(""); setDraftPublisher(""); setDraftDate(""); setDraftUrl(""); setUploadOpen(false); setTab("read");
       if (!deepseekConnected) { toast.success("文章已保存，请先在设置里连接 AI 模型"); openSettings("deepseek"); }
       else toast.success("文章已保存，划词或划句时会实时翻译");
     } catch { toast.error("文章保存失败，请稍后重试"); } finally { setSaving(false); }
@@ -1087,16 +1106,17 @@ export default function Home() {
               </PopoverContent></Popover>
             <DailyPicks onOpen={openPicked} />
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button variant="ghost" className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
-              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">输入网址导入，上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
+              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">输入网址导入，上传 PDF、DOCX、TXT，或粘贴正文</DialogDescription></DialogHeader>
                 <form className="url-import" onSubmit={(event) => { event.preventDefault(); void importFromUrl(); }}>
                   <div className="url-import-row"><Link2 className="url-import-icon size-4" /><input type="url" inputMode="url" value={importUrl} onChange={(event) => { setImportUrl(event.target.value); setImportError(""); }} placeholder="粘贴文章网址，例如 https://www.theguardian.com/…" aria-label="文章网址" disabled={importing} />
                     <Button type="submit" className="h-9 rounded-lg" disabled={importing || !importUrl.trim()}>{importing ? <><Loader2 className="size-4 animate-spin" />读取中</> : "导入"}</Button></div>
                   {importError ? <p className="url-import-error" role="alert">{importError}</p> : <p className="url-import-hint">自动提取标题、正文和出处，去掉广告和推荐阅读</p>}
                 </form>
                 <div className="add-divider"><span>或者</span></div>
-                <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">TXT / DOCX</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
+                <label className={`upload-zone${readingFile ? " is-busy" : ""}`}>{readingFile ? <Loader2 className="size-6 animate-spin text-foreground" /> : <Upload className="size-6 text-foreground" />}<span className="font-medium">{readingFile ? "正在读取…" : "PDF / DOCX / TXT"}</span><input className="sr-only" type="file" accept=".pdf,.docx,.txt,application/pdf" disabled={readingFile} onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void importFile(file); }} /></label>
                 <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="标题" className="h-11 rounded-xl" />
-                <Input value={draftShort} onChange={(event) => setDraftShort([...event.target.value].slice(0, 5).join(""))} placeholder="简称（≤5 字）" className="h-11 rounded-xl" />
+                <Input value={draftShort} onChange={(event) => setDraftShort([...event.target.value].slice(0, 5).join(""))} placeholder="简称（≤5 字，留空自动生成）" className="h-11 rounded-xl" />
+                <div className="draft-source"><Input value={draftPublisher} onChange={(event) => setDraftPublisher(event.target.value)} placeholder="出处（可选，如 The Guardian）" className="h-11 rounded-xl" aria-label="出处" /><Input type="date" value={draftDate} onChange={(event) => setDraftDate(event.target.value)} className="h-11 rounded-xl" aria-label="发布日期" title="发布日期" /><Input value={draftUrl} onChange={(event) => setDraftUrl(event.target.value)} placeholder="原文链接（可选）" className="h-11 rounded-xl" aria-label="原文链接" /></div>
                 <Textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="粘贴正文" className="min-h-56 rounded-xl leading-7" />
                 <Button className="h-11 rounded-xl" onClick={() => void addArticle()} disabled={saving}>{saving && <Loader2 className="size-4 animate-spin" />}开始阅读</Button>
               </DialogContent></Dialog>
@@ -1126,7 +1146,7 @@ export default function Home() {
 
         <section className="content"><TabsContent value="read" className="h-full" forceMount hidden={tab !== "read"}><div className={`reader-layout${bilingual ? ` bilingual ${sideBySide ? "side" : "stacked"}` : ""}`} style={{ "--measure": `${readingMeasure}px`, "--tw": `${Math.max(280, sideWidth)}px` } as React.CSSProperties}><div className="read-progress" ref={progressRef} aria-hidden="true" /><article ref={readerPanelRef} className={`reader-panel${selection ? " has-sheet" : ""}`} onScroll={trackProgress}>{!libraryLoaded ? <div className="skeleton-reader" aria-label="正在加载" role="status"><span className="sk sk-chip" /><span className="sk sk-title" /><span className="sk sk-title short" />{[0, 1, 2].map((block) => <div className="sk-para" key={block}>{[92, 100, 96, 88, 64].map((width, line) => <span className="sk sk-line" style={{ width: `${width}%` }} key={line} />)}</div>)}</div> : <><div className="reader-heading"><div><div className="reader-meta-row"><p className="eyebrow">{activeArticle && activeArticle.id > 0 ? formatImportDate(activeArticle.createdAt, true) : "示例文章"}</p>{activeArticle && activeArticle.id > 0 && (editingShort !== null
     ? <input className="short-title-input" autoFocus value={editingShort} maxLength={8} placeholder="最多 5 个字" aria-label="文章简称" onChange={(event) => setEditingShort([...event.target.value].slice(0, 5).join(""))} onBlur={() => void saveShortTitle(activeArticle.id, editingShort)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditingShort(null); }} />
-    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <div className="read-length-row"><p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p><button type="button" className="bilingual-toggle" aria-pressed={bilingual} onClick={() => { if (!bilingual && !aiConnected) { openSettings("deepseek"); toast.info("请先在设置里连接 AI 模型"); return; } toggleBilingual(); }} title="全文对照翻译（快捷键 T）"><Columns2 className="size-[15px]" /><span>{bilingual ? "关闭对照" : "全文对照"}</span></button></div>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate} · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{paragraphs.map((paragraph, index) => {
+    : <button type="button" className="short-title-chip" title="点击修改简称" onClick={() => setEditingShort(activeArticle.shortTitle || "")}>{activeArticle.shortTitle || "添加简称"}</button>)}</div><h1>{activeArticle?.title}</h1>{readingLength.words > 0 && <div className="read-length-row"><p className="read-length"><span>{readingLength.words.toLocaleString("en-US")} 词</span><span>约 {readingLength.minutes} 分钟</span>{readingLength.kaoyan > 0 && kaoyanOn && <span>考研词 {readingLength.kaoyan}</span>}</p><button type="button" className="bilingual-toggle" aria-pressed={bilingual} onClick={() => { if (!bilingual && !aiConnected) { openSettings("deepseek"); toast.info("请先在设置里连接 AI 模型"); return; } toggleBilingual(); }} title="全文对照翻译（快捷键 T）"><Columns2 className="size-[15px]" /><span>{bilingual ? "关闭对照" : "全文对照"}</span></button></div>}{articleParts.source && <p className="article-source">{articleParts.source.publisher} · {articleParts.source.publishedDate}{articleParts.source.url && <> · <a href={articleParts.source.url} target="_blank" rel="noreferrer">原文</a></>}</p>}</div></div><div ref={articleBodyRef} className="article-body" style={{ fontSize: readingSettings.fontSize, lineHeight: readingSettings.lineHeight, letterSpacing: readingSettings.letterSpacing, fontFamily: READING_FONTS[readingSettings.fontFamily] }} onMouseUp={handleSelection}>{paragraphs.map((paragraph, index) => {
               const entry = bilingual && activeArticle ? paraTranslations[paraKey(activeArticle.id, paragraph)] : undefined;
               return <Fragment key={index}><AnnotatedParagraph text={paragraph} dropCap={index === 0} savedWords={savedWordSet} savedPhrases={savedPhraseTexts} savedSentences={savedSentenceTexts} vocab={kaoyanOn ? kaoyanVocab : null} />
                 {bilingual && activeArticle && paragraph.trim() && <div className={`para-zh${entry?.error ? " is-error" : ""}${entry?.text ? " is-ready" : ""}`} lang="zh-CN" onMouseUp={(event) => event.stopPropagation()}>

@@ -1,5 +1,6 @@
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
+import { publisherFor } from "./publishers";
 
 // Turns an article web page into Gist's plain format: paragraphs separated by blank lines,
 // ending with "publisher | date" and the source URL so the reader can show where it came from.
@@ -10,13 +11,7 @@ type Part = { text: string; heading: boolean };
 // linkedom's DOM is close enough to the browser's for what we touch here.
 type Node = { tagName?: string; parentElement: Node | null; className?: unknown; textContent: string | null; firstElementChild: Node | null; firstChild: unknown; getAttribute(name: string): string | null; hasAttribute(name: string): boolean; querySelectorAll(selector: string): Iterable<Node>; querySelector(selector: string): Node | null; closest?(selector: string): Node | null; remove(): void };
 
-const KNOWN: [string, string][] = [
-  ["theguardian.com", "The Guardian"], ["economist.com", "The Economist"], ["theatlantic.com", "The Atlantic"],
-  ["scientificamerican.com", "Scientific American"], ["theconversation.com", "The Conversation"], ["nytimes.com", "The New York Times"],
-  ["washingtonpost.com", "The Washington Post"], ["bbc.com", "BBC"], ["bbc.co.uk", "BBC"], ["ft.com", "Financial Times"],
-  ["newyorker.com", "The New Yorker"], ["wired.com", "WIRED"], ["nature.com", "Nature"], ["science.org", "Science"],
-  ["aeon.co", "Aeon"], ["nationalgeographic.com", "National Geographic"], ["sciencefocus.com", "BBC Science Focus"], ["smithsonianmag.com", "Smithsonian Magazine"], ["newscientist.com", "New Scientist"], ["apnews.com", "AP News"], ["cnn.com", "CNN"], ["latimes.com", "Los Angeles Times"], ["bloomberg.com", "Bloomberg"], ["wsj.com", "The Wall Street Journal"], ["vox.com", "Vox"], ["time.com", "TIME"], ["nasa.gov", "NASA"], ["npr.org", "NPR"], ["reuters.com", "Reuters"],
-];
+
 
 const clean = (text: string | null | undefined) => (text || "").replace(/ /g, " ").replace(/[ \t\r\n]+/g, " ").trim();
 
@@ -48,7 +43,7 @@ export function extractArticle(html: string, pageUrl: URL): ImportedPage {
 
   const host = pageUrl.hostname.replace(/^www\./, "");
   const ldPublisher = (ld.publisher && typeof ld.publisher === "object" ? (ld.publisher as Record<string, unknown>).name : "") as string;
-  const publisher = clean(KNOWN.find(([domain]) => host === domain || host.endsWith("." + domain))?.[1] || meta("og:site_name") || ldPublisher || host).slice(0, 60);
+  const publisher = clean(publisherFor(host) || meta("og:site_name") || ldPublisher || host).slice(0, 60);
 
   const escaped = publisher.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const title = clean(document.querySelector("h1")?.textContent || (ld.headline as string) || meta("og:title") || document.title)
