@@ -2,7 +2,7 @@
 
 import { flushSync } from "react-dom";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ALargeSmall, BarChart3, Columns2, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
+import { ALargeSmall, BarChart3, Columns2, Link2, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -138,6 +138,9 @@ export default function Home() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [articleDockOpen, setArticleDockOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
   const [draftText, setDraftText] = useState("");
   const [draftShort, setDraftShort] = useState("");
   const [editingShort, setEditingShort] = useState<string | null>(null);
@@ -714,6 +717,24 @@ export default function Home() {
     } catch { toast.error("文章保存失败，请稍后重试"); } finally { setSaving(false); }
   }
 
+  // Paste a link → the server reads the page, keeps the article text and files it in the library.
+  async function importFromUrl() {
+    const url = importUrl.trim();
+    if (!url) return;
+    setImporting(true); setImportError("");
+    try {
+      const response = await fetch("/api/import-url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+      const data = await json<{ error?: string; article?: Article; duplicate?: boolean; words?: number }>(response);
+      if (!response.ok || !data.article) throw new Error(data.error || "导入失败，请稍后再试");
+      const article = data.article;
+      setArticles((items) => [article, ...items.filter((item) => item.id !== 0 && item.id !== article.id)]); setActiveArticleId(article.id);
+      setImportUrl(""); setUploadOpen(false); setTab("read");
+      toast.success(data.duplicate ? "这篇已经在文章库里了，已为你打开" : `已导入 · ${(data.words ?? 0).toLocaleString("en-US")} 词`);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "导入失败，请稍后再试");
+    } finally { setImporting(false); }
+  }
+
   async function removeItem(kind: "word" | "sentence", id: number) {
     const response = await fetch(`/api/library?kind=${kind}&id=${id}`, { method: "DELETE" });
     if (!response.ok) return toast.error("删除失败");
@@ -1066,7 +1087,13 @@ export default function Home() {
               </PopoverContent></Popover>
             <DailyPicks onOpen={openPicked} />
             <Dialog open={uploadOpen} onOpenChange={setUploadOpen}><DialogTrigger asChild><Button variant="ghost" className="rounded-xl" aria-label="添加文章" title="添加文章"><Plus className="size-4" /><span className="button-label">添加文章</span></Button></DialogTrigger>
-              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
+              <DialogContent className="max-h-[88vh] overflow-y-auto rounded-xl sm:max-w-2xl"><DialogHeader><DialogTitle className="text-2xl">添加文章</DialogTitle><DialogDescription className="sr-only">输入网址导入，上传 TXT、DOCX，或粘贴正文</DialogDescription></DialogHeader>
+                <form className="url-import" onSubmit={(event) => { event.preventDefault(); void importFromUrl(); }}>
+                  <div className="url-import-row"><Link2 className="url-import-icon size-4" /><input type="url" inputMode="url" value={importUrl} onChange={(event) => { setImportUrl(event.target.value); setImportError(""); }} placeholder="粘贴文章网址，例如 https://www.theguardian.com/…" aria-label="文章网址" disabled={importing} />
+                    <Button type="submit" className="h-9 rounded-lg" disabled={importing || !importUrl.trim()}>{importing ? <><Loader2 className="size-4 animate-spin" />读取中</> : "导入"}</Button></div>
+                  {importError ? <p className="url-import-error" role="alert">{importError}</p> : <p className="url-import-hint">自动提取标题、正文和出处，去掉广告和推荐阅读</p>}
+                </form>
+                <div className="add-divider"><span>或者</span></div>
                 <label className="upload-zone"><Upload className="size-6 text-foreground" /><span className="font-medium">TXT / DOCX</span><input className="sr-only" type="file" accept=".txt,.docx" onChange={(event) => event.target.files?.[0] && void importFile(event.target.files[0])} /></label>
                 <Input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} placeholder="标题" className="h-11 rounded-xl" />
                 <Input value={draftShort} onChange={(event) => setDraftShort([...event.target.value].slice(0, 5).join(""))} placeholder="简称（≤5 字）" className="h-11 rounded-xl" />

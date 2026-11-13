@@ -5,7 +5,7 @@ import { chatJson, providerName, type ChatTarget } from "@/lib/ai-request";
 
 type TranslationKind = "word" | "phrase" | "sentence";
 
-async function credentials(request: Request, owner: string): Promise<ChatTarget> {
+export async function credentials(request: Request, owner: string): Promise<ChatTarget> {
   const row = await aiConnectionFor(owner);
   if (!row) throw new Error("请先在设置里连接 AI 模型");
   const endpoint = validateAiEndpoint(row.endpoint);

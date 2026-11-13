@@ -573,3 +573,15 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .para-zh-loading i{display:block;height:.62em;border-radius:4px;background:linear-gradient(90deg,var(--muted) 25%,color-mix(in oklab,var(--foreground) 10%,var(--muted)) 50%,var(--muted) 75%);background-size:240% 100%;animation:sk-shimmer 1.4s linear infinite}
 .para-zh-loading i:nth-child(2){width:88%}.para-zh-loading i:nth-child(3){width:56%}
 @media (prefers-reduced-motion:reduce){.reader-heading,.article-body{transition:none}.para-zh.is-ready,.para-zh-loading i{animation:none}}
+
+/* ── Import from a link ── */
+.url-import{display:grid;gap:7px}
+.url-import-row{display:flex;align-items:center;gap:8px;height:48px;padding:0 6px 0 14px;border:1px solid var(--border);border-radius:14px;background:var(--muted);transition:border-color .2s,box-shadow .2s}
+.url-import-row:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in oklab,var(--foreground) 8%,transparent)}
+.url-import-icon{flex:none;color:var(--muted-foreground)}
+.url-import-row input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--foreground);font-size:14px}
+.url-import-row input::placeholder{color:var(--muted-foreground)}
+.url-import-hint,.url-import-error{margin:0 4px;font-size:12.5px;line-height:1.5;color:var(--muted-foreground)}
+.url-import-error{color:var(--destructive)}
+.add-divider{display:flex;align-items:center;gap:12px;margin:4px 0;font-size:12px;color:var(--muted-foreground)}
+.add-divider::before,.add-divider::after{content:"";flex:1;height:1px;background:var(--hairline)}
