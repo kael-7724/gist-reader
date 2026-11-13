@@ -15,7 +15,7 @@ const KNOWN: [string, string][] = [
   ["scientificamerican.com", "Scientific American"], ["theconversation.com", "The Conversation"], ["nytimes.com", "The New York Times"],
   ["washingtonpost.com", "The Washington Post"], ["bbc.com", "BBC"], ["bbc.co.uk", "BBC"], ["ft.com", "Financial Times"],
   ["newyorker.com", "The New Yorker"], ["wired.com", "WIRED"], ["nature.com", "Nature"], ["science.org", "Science"],
-  ["aeon.co", "Aeon"], ["vox.com", "Vox"], ["time.com", "TIME"], ["nasa.gov", "NASA"], ["npr.org", "NPR"], ["reuters.com", "Reuters"],
+  ["aeon.co", "Aeon"], ["nationalgeographic.com", "National Geographic"], ["sciencefocus.com", "BBC Science Focus"], ["smithsonianmag.com", "Smithsonian Magazine"], ["newscientist.com", "New Scientist"], ["apnews.com", "AP News"], ["cnn.com", "CNN"], ["latimes.com", "Los Angeles Times"], ["bloomberg.com", "Bloomberg"], ["wsj.com", "The Wall Street Journal"], ["vox.com", "Vox"], ["time.com", "TIME"], ["nasa.gov", "NASA"], ["npr.org", "NPR"], ["reuters.com", "Reuters"],
 ];
 
 const clean = (text: string | null | undefined) => (text || "").replace(/ /g, " ").replace(/[ \t\r\n]+/g, " ").trim();
@@ -93,11 +93,15 @@ export function extractArticle(html: string, pageUrl: URL): ImportedPage {
         continue;
       }
       if (text.length < 40 && !/[.!?"”’)]$/.test(text)) continue;
-      if (/^(sign up|subscribe|read more|related:|advertisement|this article (was|is) (originally )?(published|republished)|(nasa earth observatory )?(images?|photographs?|story|video) by )/i.test(text)) continue;
+      if (/^(sign up|subscribe|read more|related:|advertisement|this article (was|is) (originally )?(published|republished)|(nasa earth observatory )?(images?|photographs?|story|video) by |this (episode|podcast)\b|listen to |news clips in this episode|a transcript of this episode)/i.test(text)) continue;
+      // "(Why eight hours of sleep may not be enough.)" — a link to another story set in parentheses.
+      if (/^\(.{10,150}\)$/.test(text)) continue;
       if (parts.length && parts[parts.length - 1].text === text) continue;
       parts.push({ text, heading: false });
     }
-    while (parts.length && parts[parts.length - 1].heading) parts.pop();
+    // Author and expert bios at the very end ("Jane Doe is a professor of …").
+    const bio = /^(dr\.? |professor )?[A-Z][\w'’.-]*(?: [A-Z][\w'’.-]*){1,3} (is|was) (a|an|the|currently|now|senior|professor|assistant|associate|lecturer|fellow|director|head|founder|author|editor|reader)\b/;
+    while (parts.length && (parts[parts.length - 1].heading || (parts[parts.length - 1].text.length < 700 && bio.test(parts[parts.length - 1].text)))) parts.pop();
     while (parts.length && parts[0].heading) parts.shift();
     return parts;
   };
