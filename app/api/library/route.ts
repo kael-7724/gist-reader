@@ -99,6 +99,8 @@ export async function PATCH(request: Request) {
       if (!current) return Response.json({ error: "没有找到这个单词" }, { status: 404 });
       const next = nextState(current, grade);
       const reviewed = await db.prepare("UPDATE saved_words SET srs_stability = ?, srs_difficulty = ?, srs_lapses = srs_lapses + ?, reviewed_at = CURRENT_TIMESTAMP, review_count = review_count + 1 WHERE owner_id = ? AND id = ? RETURNING reviewed_at AS reviewedAt, review_count AS reviewCount, srs_stability AS srsStability, srs_difficulty AS srsDifficulty").bind(next.stability, next.difficulty, grade === "again" ? 1 : 0, owner, id).first();
+      const day = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+      await db.prepare("INSERT INTO word_reviews (owner_id, word_id, grade, day) VALUES (?, ?, ?, ?)").bind(owner, id, grade, day).run();
       return Response.json(reviewed);
     }
     const result = await db.prepare("UPDATE saved_words SET sort_order = (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM saved_words WHERE owner_id = ?) WHERE owner_id = ? AND id = ? RETURNING id").bind(owner, owner, id).first();
