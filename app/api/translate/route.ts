@@ -1,4 +1,4 @@
-import { translateWithDeepSeek } from "@/lib/deepseek";
+import { translateWithDeepSeek, translateWordWithDeepSeek } from "@/lib/deepseek";
 import { database, message, ownerId } from "@/lib/site-data";
 
 function normalize(value: string) {
@@ -14,6 +14,9 @@ export async function POST(request: Request) {
     if (!text || !Number.isInteger(articleId) || articleId < 1 || !payload.type) return Response.json({ error: "翻译参数不完整" }, { status: 400 });
     const article = await database().prepare("SELECT translation_status, translation_error, translation_provider FROM articles WHERE id = ? AND owner_id = ?").bind(articleId, owner).first<{ translation_status: string; translation_error: string | null; translation_provider: string }>();
     if (!article) return Response.json({ error: "没有找到文章" }, { status: 404 });
+    if (payload.type === "word" && payload.mode === "realtime") {
+      return Response.json({ ...await translateWordWithDeepSeek(request, owner, text, payload.context || ""), source: "deepseek-realtime" });
+    }
     if (payload.mode === "realtime" || payload.type === "phrase") {
       return Response.json({ translation: await translateWithDeepSeek(request, owner, text, payload.type, payload.context || ""), source: "deepseek-realtime" });
     }

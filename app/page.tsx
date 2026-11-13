@@ -28,7 +28,7 @@ type RelatedWord = { word: string; translation: string };
 type SavedWord = { id: number; articleId?: number | null; text: string; translation: string; context: string; articleTitle: string; createdAt: string; maimemoVocId?: string | null; syncStatus?: "pending" | "synced" | "failed"; syncError?: string | null; syncedAt?: string | null; similarJson?: string | null; lookalikeJson?: string | null; reviewedAt?: string | null; reviewCount?: number; srsStability?: number | null; srsDifficulty?: number | null };
 type SavedSentence = { id: number; articleId?: number | null; text: string; translation: string; articleTitle: string; createdAt: string };
 type SelectionKind = "word" | "phrase" | "sentence";
-type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean; saved?: boolean };
+type SelectionDraft = { text: string; type: SelectionKind; context: string; translation: string; loading: boolean; error?: boolean; saved?: boolean; phrase?: { text: string; translation: string } };
 type TranslationMode = "realtime";
 type ReadingSettings = { fontSize: number; lineHeight: number; fontFamily: "newsreader" | "serif" | "sans" | "georgia"; letterSpacing: number };
 const defaultReadingSettings: ReadingSettings = { fontSize: 20, lineHeight: 1.85, fontFamily: "newsreader", letterSpacing: 0 };
@@ -510,9 +510,9 @@ export default function Home() {
 
   async function requestTranslation(text: string, type: SelectionKind, context: string, articleId: number) {
     const response = await fetch("/api/translate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, type, context, articleId, mode: translationMode }) });
-    const data = await json<{ translation?: string; error?: string }>(response);
+    const data = await json<{ translation?: string; error?: string; phrase?: string; phraseTranslation?: string }>(response);
     if (!response.ok) throw new Error(data.error || "实时翻译失败");
-    return data.translation || "";
+    return { translation: data.translation || "", phrase: data.phrase && data.phraseTranslation ? { text: data.phrase, translation: data.phraseTranslation } : undefined };
   }
 
   async function translateSelection(text: string, type: SelectionKind, context: string) {
@@ -520,8 +520,8 @@ export default function Home() {
     setSelection({ text, type, context, translation: "", loading: true });
     try {
       if (!activeArticle || activeArticle.id < 1) throw new Error("请先添加自己的文章");
-      const translation = await requestTranslation(text, type, context, activeArticle.id);
-      if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: translation || "暂时没有获取到翻译", loading: false, error: !translation });
+      const { translation, phrase } = await requestTranslation(text, type, context, activeArticle.id);
+      if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: translation || "暂时没有获取到翻译", loading: false, error: !translation, phrase });
     } catch (error) {
       const message = error instanceof Error ? error.message : "翻译暂时不可用";
       if (translationRequestRef.current === requestId) setSelection({ text, type, context, translation: message, loading: false, error: true });
@@ -590,7 +590,7 @@ export default function Home() {
       } },
     });
     try {
-      const translation = await requestTranslation(text, type, context, article.id);
+      const { translation } = await requestTranslation(text, type, context, article.id);
       if (!translation) throw new Error("暂时没有获取到翻译");
       if (state.cancelled) return;
       const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "save-selection", text, type, context, translation, articleId: article.id, articleTitle: article.title }) });
@@ -1156,7 +1156,7 @@ export default function Home() {
                     : <span className="para-zh-loading" aria-label="正在翻译"><i /><i /><i /></span>}
                 </div>}</Fragment>;
             })}</div></>}</article>
-          <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} /></div></TabsContent>
+          <TranslationSheet sheetRef={translationFloatRef} selection={selection} saving={saving} alreadySaved={selection ? !selection.loading && !selection.saved && isAlreadySaved(selection.text, selection.type) : false} onSave={() => void saveSelection()} onClose={closeSelection} onSwitchType={(type) => setSelection((current) => current && { ...current, type })} onOpenPhrase={(phrase) => setSelection((current) => current && { text: phrase.text, type: "phrase", context: current.context, translation: phrase.translation, loading: false })} /></div></TabsContent>
 
           <TabsContent value="words" className="library-page">{wordBookView}</TabsContent>
           <TabsContent value="phrases" className="library-page">{wordBookView}</TabsContent>

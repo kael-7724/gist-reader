@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Bookmark, BookmarkCheck, Loader2 } from "lucide-react";
 
 type Kind = "word" | "phrase" | "sentence";
-export type SheetSelection = { text: string; type: Kind; translation: string; loading: boolean; error?: boolean; saved?: boolean };
+export type SheetSelection = { text: string; type: Kind; translation: string; loading: boolean; error?: boolean; saved?: boolean; phrase?: { text: string; translation: string } };
 
 type Props = {
   selection: SheetSelection | null;
@@ -14,6 +14,7 @@ type Props = {
   onSave: () => void;
   onClose: () => void;
   onSwitchType: (type: Kind) => void;
+  onOpenPhrase?: (phrase: { text: string; translation: string }) => void;
   sheetRef: Ref<HTMLElement>;
 };
 
@@ -21,7 +22,7 @@ const kindLabel: Record<Kind, string> = { word: "单词", phrase: "词组 · 词
 
 // A compact sheet pinned to the bottom of the screen: it never covers the line being read,
 // grows and shrinks smoothly with its content, and can be swiped down on touch screens.
-export function TranslationSheet({ selection, saving, alreadySaved, onSave, onClose, onSwitchType, sheetRef }: Props) {
+export function TranslationSheet({ selection, saving, alreadySaved, onSave, onClose, onSwitchType, onOpenPhrase, sheetRef }: Props) {
   const [view, setView] = useState<SheetSelection | null>(selection);
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -119,6 +120,8 @@ export function TranslationSheet({ selection, saving, alreadySaved, onSave, onCl
                 {view.loading
                   ? <span className="tsheet-shimmer" role="status" aria-label="正在翻译" />
                   : <p key={view.translation} className={`tsheet-translation${view.error ? " is-error" : ""}`}>{view.translation}</p>}
+                {!view.loading && view.phrase && <button type="button" className="tsheet-phrase" onClick={() => view.phrase && onOpenPhrase?.(view.phrase)} title="查看并收藏这个搭配">
+                  <span className="tsheet-phrase-label">搭配</span><span className="tsheet-phrase-en" lang="en">{view.phrase.text}</span><span className="tsheet-phrase-zh">{view.phrase.translation}</span></button>}
               </div>
               <button
                 type="button"

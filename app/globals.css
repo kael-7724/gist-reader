@@ -632,3 +632,10 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 @media (max-width:820px){.review-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (prefers-reduced-motion:reduce){.memory-seg,.review-stack{animation:none}}
 .review-section .stats-axis+.review-chart-head,.review-section .stats-empty+.review-chart-head{margin-top:26px}
+
+/* Collocation under a single word's meaning: "搭配 private equity 私募股权" */
+.tsheet-phrase{display:inline-flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;max-width:100%;margin-top:9px;padding:6px 11px 6px 9px;border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--foreground);text-align:left;cursor:pointer;transition:background-color .18s,border-color .18s;animation:zh-in .45s cubic-bezier(.22,1,.36,1) both}
+.tsheet-phrase:hover{background:var(--accent);border-color:var(--ring)}
+.tsheet-phrase-label{align-self:center;padding:1px 6px;border-radius:5px;background:var(--muted);color:var(--muted-foreground);font-size:11px;letter-spacing:.04em}
+.tsheet-phrase-en{font-family:var(--serif-en);font-size:16px;font-weight:600}
+.tsheet-phrase-zh{font-family:var(--serif-zh);font-size:14px;color:var(--muted-foreground)}
