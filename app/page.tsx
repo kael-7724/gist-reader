@@ -2,7 +2,7 @@
 
 import { flushSync } from "react-dom";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ALargeSmall, BarChart3, Columns2, Link2, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
+import { ALargeSmall, BarChart3, Columns2, Link2, RefreshCw, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
 import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
@@ -169,6 +169,8 @@ export default function Home() {
   const [maimemoToken, setMaimemoToken] = useState("");
   const [maimemoLoading, setMaimemoLoading] = useState(false);
   const [syncingIds, setSyncingIds] = useState<number[]>([]);
+  const [retranslateOpen, setRetranslateOpen] = useState(false);
+  const [retranslate, setRetranslate] = useState<{ running: boolean; done: number; total: number; failed: number; finished: boolean }>({ running: false, done: 0, total: 0, failed: 0, finished: false });
   const translationFloatRef = useRef<HTMLElement | null>(null);
   const translationRequestRef = useRef(0);
   const translationMode: TranslationMode = "realtime";
@@ -754,6 +756,33 @@ export default function Home() {
     } finally { setImporting(false); }
   }
 
+  // Re-translate every single word in the word book, 20 at a time, so each keeps only its own meaning.
+  async function retranslateAllWords() {
+    const ids = words.filter((word) => !word.text.includes(" ")).map((word) => word.id);
+    if (!ids.length) return;
+    setRetranslate({ running: true, done: 0, total: ids.length, failed: 0, finished: false });
+    let done = 0; let failed = 0;
+    for (let at = 0; at < ids.length; at += 20) {
+      const chunk = ids.slice(at, at + 20);
+      let ok = false;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        try {
+          const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "retranslate-words", ids: chunk }) });
+          const data = await json<{ updated?: Array<{ id: number; translation: string }>; error?: string }>(response);
+          if (!response.ok) throw new Error(data.error || "翻译失败");
+          const map = new Map((data.updated ?? []).map((item) => [item.id, item.translation]));
+          setWords((items) => items.map((item) => map.has(item.id) ? { ...item, translation: map.get(item.id)! } : item));
+          ok = true;
+        } catch (error) {
+          if (attempt === 1) { failed += chunk.length; if (error instanceof Error && /API Key|连接 AI|余额/.test(error.message)) { toast.error(error.message); setRetranslate({ running: false, done, total: ids.length, failed: ids.length - done, finished: true }); return; } }
+        }
+      }
+      done += chunk.length;
+      setRetranslate({ running: true, done, total: ids.length, failed, finished: false });
+    }
+    setRetranslate({ running: false, done, total: ids.length, failed, finished: true });
+  }
+
   async function removeItem(kind: "word" | "sentence", id: number) {
     const response = await fetch(`/api/library?kind=${kind}&id=${id}`, { method: "DELETE" });
     if (!response.ok) return toast.error("删除失败");
@@ -1033,6 +1062,7 @@ export default function Home() {
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.some((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate)))} onClick={() => setWallOpen(true)} aria-label="翻卡（考研词）" title="翻卡（考研词）"><Shuffle className="size-4" /></Button>
                     <Button variant="outline" size="icon" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }} aria-label={translationsHidden ? "显示释义" : "隐藏释义"} title={translationsHidden ? "显示释义" : "隐藏释义"}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</Button>
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()} aria-label="生成联想" title="生成联想">{enrichingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>
+                    {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => !word.text.includes(" ")) || retranslate.running} onClick={() => { if (!retranslate.running) setRetranslate((current) => ({ ...current, finished: false, done: 0, failed: 0 })); setRetranslateOpen(true); }} aria-label="重新翻译释义" title="重新翻译释义">{retranslate.running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</Button>}
                     {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))} aria-label="同步墨墨" title="同步墨墨">{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}</Button>}
                   <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection} aria-label="批量删除" title="批量删除"><Trash2 className="size-4" /></Button>
                 </>
@@ -1082,6 +1112,24 @@ export default function Home() {
   return (
     <main className="app-shell">
       <Toaster position="top-center" theme={theme} />
+      <Dialog open={retranslateOpen} onOpenChange={(open) => { if (!retranslate.running) setRetranslateOpen(open); }}>
+        <DialogContent className="retranslate-dialog sm:max-w-[440px]">
+          <DialogHeader><DialogTitle>重新翻译单词本</DialogTitle>
+            <DialogDescription>按收藏时所在的句子，重新给每个单词写释义：只写这个词本身的意思，不再写它所在搭配的意思（例如 equity 是「股权；股本」，不是「私募股权」）。词组本不变。</DialogDescription></DialogHeader>
+          {retranslate.running || retranslate.finished ? (
+            <div className="retranslate-progress" role="status">
+              <div className="retranslate-bar"><span style={{ width: `${retranslate.total ? (retranslate.done / retranslate.total) * 100 : 0}%` }} /></div>
+              <p>{retranslate.finished ? `完成：${retranslate.done - retranslate.failed} 个单词已更新${retranslate.failed ? `，${retranslate.failed} 个失败，可以再试一次` : ""}` : `正在翻译 ${retranslate.done} / ${retranslate.total}…`}</p>
+              {retranslate.finished && <p className="retranslate-note">已经同步到墨墨的单词，墨墨里的释义不会跟着改。</p>}
+            </div>
+          ) : <p className="retranslate-note">共 {words.filter((word) => !word.text.includes(" ")).length} 个单词，每 20 个调用一次 AI，大约 {Math.ceil(words.filter((word) => !word.text.includes(" ")).length / 20)} 次。翻译期间可以继续使用。</p>}
+          <div className="retranslate-actions">
+            {retranslate.finished || retranslate.running
+              ? <Button className="rounded-xl" disabled={retranslate.running} onClick={() => setRetranslateOpen(false)}>{retranslate.running ? <><Loader2 className="size-4 animate-spin" />翻译中</> : "完成"}</Button>
+              : <><Button variant="ghost" className="rounded-xl" onClick={() => setRetranslateOpen(false)}>取消</Button><Button className="rounded-xl" onClick={() => void retranslateAllWords()}>开始翻译</Button></>}
+          </div>
+        </DialogContent>
+      </Dialog>
       {wallOpen && <WordWall pool={filteredWords.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate))).map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">

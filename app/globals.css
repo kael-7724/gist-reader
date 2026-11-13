@@ -639,3 +639,9 @@ html,body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 .tsheet-phrase-label{align-self:center;padding:1px 6px;border-radius:5px;background:var(--muted);color:var(--muted-foreground);font-size:11px;letter-spacing:.04em}
 .tsheet-phrase-en{font-family:var(--serif-en);font-size:16px;font-weight:600}
 .tsheet-phrase-zh{font-family:var(--serif-zh);font-size:14px;color:var(--muted-foreground)}
+.retranslate-progress{display:grid;gap:10px}
+.retranslate-bar{height:6px;border-radius:999px;background:var(--track);overflow:hidden}
+.retranslate-bar span{display:block;height:100%;border-radius:inherit;background:var(--foreground);transition:width .5s cubic-bezier(.22,1,.36,1)}
+.retranslate-progress p{margin:0;font-size:13.5px}
+.retranslate-note{margin:0;font-size:12.5px;line-height:1.6;color:var(--muted-foreground)}
+.retranslate-actions{display:flex;justify-content:flex-end;gap:8px}

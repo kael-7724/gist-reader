@@ -1,3 +1,4 @@
+import { retranslateWordsWithDeepSeek } from "@/lib/deepseek";
 import { database, message, ownerId } from "@/lib/site-data";
 import { lemmatizeEnglishWord } from "@/lib/english-lemma";
 import { nextState, type Grade, type SrsState } from "@/lib/srs";
@@ -10,7 +11,7 @@ function normalizePhrase(value: string) {
 }
 
 type LibraryPayload = {
-  action?: "create-article" | "save-selection";
+  action?: "create-article" | "save-selection" | "retranslate-words";
   shortTitle?: string;
   title?: string;
   content?: string;
@@ -20,6 +21,7 @@ type LibraryPayload = {
   context?: string;
   articleId?: number;
   articleTitle?: string;
+  ids?: number[];
   publisher?: string;
   publishedDate?: string;
   sourceUrl?: string;
@@ -49,6 +51,16 @@ export async function POST(request: Request) {
     const owner = ownerId(request);
     const db = database();
     const payload = await request.json() as LibraryPayload;
+    // Re-translate up to 20 saved single words with their own sentences; the page calls this in rounds.
+    if (payload.action === "retranslate-words") {
+      const ids = [...new Set((payload.ids ?? []).filter((value): value is number => Number.isInteger(value) && value > 0))].slice(0, 20);
+      if (!ids.length) return Response.json({ error: "没有要翻译的单词" }, { status: 400 });
+      const rows = await db.prepare(`SELECT id, text, context FROM saved_words WHERE owner_id = ? AND id IN (${ids.map(() => "?").join(",")}) AND instr(text, ' ') = 0`).bind(owner, ...ids).all<{ id: number; text: string; context: string | null }>();
+      if (!rows.results.length) return Response.json({ updated: [] });
+      const translations = await retranslateWordsWithDeepSeek(request, owner, rows.results.map((row) => ({ word: row.text, context: row.context || "" })));
+      await db.batch(rows.results.map((row, index) => db.prepare("UPDATE saved_words SET translation = ? WHERE owner_id = ? AND id = ?").bind(translations[index], owner, row.id)));
+      return Response.json({ updated: rows.results.map((row, index) => ({ id: row.id, translation: translations[index] })) });
+    }
     if (payload.action === "create-article") {
       const title = payload.title?.trim().slice(0, 180) || "";
       const content = payload.content?.trim().slice(0, 200000) || "";
