@@ -1,4 +1,5 @@
 import kaoyanWords from "./kaoyan-vocab.json";
+import flashcardWords from "./flashcard-vocab.json";
 
 export type ArticleSource = { publisher: string; publishedDate: string; url: string };
 
@@ -27,3 +28,5 @@ export function formatImportDate(value: string, short = false) {
 }
 
 export const kaoyanVocab = new Set<string>(kaoyanWords as string[]);
+// Every word in the full exam list (必考词 + 基础词): any of these saved to the word book can come up in flashcards.
+export const flashcardVocab = new Set<string>(flashcardWords as string[]);

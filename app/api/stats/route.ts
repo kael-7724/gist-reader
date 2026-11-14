@@ -1,4 +1,4 @@
-import { kaoyanVocab } from "@/lib/article-meta";
+import { flashcardVocab } from "@/lib/article-meta";
 import { englishLemmaCandidates } from "@/lib/english-lemma";
 import { database, message, ownerId } from "@/lib/site-data";
 import { recallNow } from "@/lib/srs";
@@ -77,14 +77,14 @@ export async function GET(request: Request) {
     let streak = 0;
     while (active.has(cursor)) { streak += 1; cursor = shiftDay(cursor, -1); }
 
-    // Flashcards: only single kaoyan words go on the table, so the memory picture covers just those.
+    // Flashcards: only single words from the full exam list go on the table, so the memory picture covers just those.
     const reviewByDay = new Map(reviewDays.results.map((row) => [row.day, row]));
     const cardDays = Array.from({ length: 30 }, (_, index) => {
       const day = shiftDay(since, index);
       const row = reviewByDay.get(day);
       return { day, good: row?.good ?? 0, again: row?.again ?? 0 };
     });
-    const cards = reviewWords.results.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate)));
+    const cards = reviewWords.results.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => flashcardVocab.has(candidate)));
     const now = Date.now();
     const memory = { fresh: 0, learning: 0, familiar: 0, mastered: 0 };
     let due = 0;

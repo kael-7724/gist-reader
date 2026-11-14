@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ALargeSmall, BarChart3, Columns2, Link2, RefreshCw, RotateCw, Moon, Settings, Shuffle, Sun, BookOpen, Bookmark, BookmarkPlus, Layers, Cloud, CloudCheck, ExternalLink, Eye, EyeOff, FileText, Languages, Library, Loader2, Plus, Search, Sparkles, Trash2, Unlink, Upload, Volume2 } from "lucide-react";
 import { AnnotatedParagraph } from "@/components/annotated-paragraph";
-import { formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
+import { flashcardVocab, formatImportDate, kaoyanVocab, splitArticle } from "@/lib/article-meta";
 import { ReadingStats, useReadingTimer } from "@/components/reading-stats";
 import { KaoyanCoverage } from "@/components/kaoyan-coverage";
 import { TranslationSheet } from "@/components/translation-sheet";
@@ -1059,7 +1059,7 @@ export default function Home() {
               count={bookItems.length}
               action={selectedWordIds === null ? (
                 <>
-                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.some((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate)))} onClick={() => setWallOpen(true)} aria-label="翻卡（考研词）" title="翻卡（考研词）"><Shuffle className="size-4" /></Button>
+                    <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.some((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => flashcardVocab.has(candidate)))} onClick={() => setWallOpen(true)} aria-label="翻卡" title="翻卡（单词表里的词）"><Shuffle className="size-4" /></Button>
                     <Button variant="outline" size="icon" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }} aria-label={translationsHidden ? "显示释义" : "隐藏释义"} title={translationsHidden ? "显示释义" : "隐藏释义"}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</Button>
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()} aria-label="生成联想" title="生成联想">{enrichingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>
                     {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => !word.text.includes(" ")) || retranslate.running} onClick={() => { if (!retranslate.running) setRetranslate((current) => ({ ...current, finished: false, done: 0, failed: 0 })); setRetranslateOpen(true); }} aria-label="重新翻译释义" title="重新翻译释义">{retranslate.running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</Button>}
@@ -1130,7 +1130,7 @@ export default function Home() {
           </div>
         </DialogContent>
       </Dialog>
-      {wallOpen && <WordWall pool={filteredWords.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => kaoyanVocab.has(candidate))).map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
+      {wallOpen && <WordWall pool={filteredWords.filter((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => flashcardVocab.has(candidate))).map((word) => ({ id: word.id, text: word.text, translation: word.translation, reviewedAt: word.reviewedAt ?? null, stability: word.srsStability ?? null, difficulty: word.srsDifficulty ?? null }))} onReview={(id, grade) => void markReviewed(id, grade)} onClose={() => setWallOpen(false)} />}
       <Tabs value={tab} onValueChange={setTab} className="workspace">
         <header className="topbar">
           <TabsList className="reader-tabs" aria-label="页面导航">

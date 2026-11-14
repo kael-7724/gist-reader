@@ -116,7 +116,7 @@ function countMax(value: number) {
 function ReviewSection({ review, today }: { review: ReviewStats; today: string }) {
   const [hovered, setHovered] = useState<number | null>(null);
   if (!review.cards) {
-    return <section className="stats-section"><div className="stats-section-head"><h2>翻卡复习</h2></div><p className="stats-empty">单词本里收藏了考研词之后，就能翻卡复习，这里会记录你的复习情况</p></section>;
+    return <section className="stats-section"><div className="stats-section-head"><h2>翻卡复习</h2></div><p className="stats-empty">单词本里收藏了单词表里的词之后，就能翻卡复习，这里会记录你的复习情况</p></section>;
   }
   const scaleMax = countMax(Math.max(...review.days.map((day) => day.good + day.again), 4));
   const todayTotal = review.today.good + review.today.again;
@@ -124,7 +124,7 @@ function ReviewSection({ review, today }: { review: ReviewStats; today: string }
   const anyReviews = review.days.some((day) => day.good + day.again > 0);
   return (
     <section className="stats-section review-section">
-      <div className="stats-section-head"><h2>翻卡复习</h2><span>{review.cards} 个考研词</span></div>
+      <div className="stats-section-head"><h2>翻卡复习</h2><span>{review.cards} 张卡</span></div>
       <div className="review-tiles">
         <div className="review-tile"><span>今天翻了</span><strong>{todayTotal}<small>张</small></strong><em>{todayTotal ? `记得 ${review.today.good} · 忘了 ${review.today.again}` : "今天还没翻卡"}</em></div>
         <div className="review-tile"><span>近 7 天记住率</span><strong>{review.weekRecall === null ? "—" : Math.round(review.weekRecall * 100)}{review.weekRecall !== null && <small>%</small>}</strong><em>{review.weekTotal ? `共 ${review.weekTotal} 次翻卡` : "最近 7 天没有翻卡"}</em></div>
