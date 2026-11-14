@@ -1,4 +1,4 @@
-import { retranslateWordsWithDeepSeek } from "@/lib/deepseek";
+import { retranslateWordsWithDeepSeek, translatePhraseWithDeepSeek } from "@/lib/deepseek";
 import { database, message, ownerId } from "@/lib/site-data";
 import { lemmatizeEnglishWord } from "@/lib/english-lemma";
 import { nextState, type Grade, type SrsState } from "@/lib/srs";
@@ -11,7 +11,7 @@ function normalizePhrase(value: string) {
 }
 
 type LibraryPayload = {
-  action?: "create-article" | "save-selection" | "retranslate-words";
+  action?: "create-article" | "save-selection" | "retranslate-words" | "retranslate-phrases";
   shortTitle?: string;
   title?: string;
   content?: string;
@@ -60,6 +60,19 @@ export async function POST(request: Request) {
       const translations = await retranslateWordsWithDeepSeek(request, owner, rows.results.map((row) => ({ word: row.text, context: row.context || "" })));
       await db.batch(rows.results.map((row, index) => db.prepare("UPDATE saved_words SET translation = ? WHERE owner_id = ? AND id = ?").bind(translations[index], owner, row.id)));
       return Response.json({ updated: rows.results.map((row, index) => ({ id: row.id, translation: translations[index] })) });
+    }
+    if (payload.action === "retranslate-phrases") {
+      // Phrases go one by one through the same check as live lookups, so a few at a time.
+      const ids = [...new Set((payload.ids ?? []).filter((value): value is number => Number.isInteger(value) && value > 0))].slice(0, 4);
+      if (!ids.length) return Response.json({ error: "没有要翻译的词组" }, { status: 400 });
+      const rows = await db.prepare(`SELECT id, text, context FROM saved_words WHERE owner_id = ? AND id IN (${ids.map(() => "?").join(",")}) AND instr(text, ' ') > 0`).bind(owner, ...ids).all<{ id: number; text: string; context: string | null }>();
+      const results = await Promise.all(rows.results.map(async (row) => {
+        try { return { id: row.id, translation: (await translatePhraseWithDeepSeek(request, owner, row.text, row.context || "")).translation }; }
+        catch (error) { if (/API Key|连接 AI|余额/.test(message(error))) throw error; return null; }
+      }));
+      const updated = results.filter((item): item is { id: number; translation: string } => Boolean(item?.translation));
+      if (updated.length) await db.batch(updated.map((item) => db.prepare("UPDATE saved_words SET translation = ? WHERE owner_id = ? AND id = ?").bind(item.translation.slice(0, 2400), owner, item.id)));
+      return Response.json({ updated });
     }
     if (payload.action === "create-article") {
       const title = payload.title?.trim().slice(0, 180) || "";

@@ -758,29 +758,35 @@ export default function Home() {
 
   // Re-translate every single word in the word book, 20 at a time, so each keeps only its own meaning.
   async function retranslateAllWords() {
-    const ids = words.filter((word) => !word.text.includes(" ")).map((word) => word.id);
-    if (!ids.length) return;
-    setRetranslate({ running: true, done: 0, total: ids.length, failed: 0, finished: false });
+    const singles = words.filter((word) => !word.text.includes(" ")).map((word) => word.id);
+    const phrases = words.filter((word) => word.text.includes(" ")).map((word) => word.id);
+    const total = singles.length + phrases.length;
+    if (!total) return;
+    setRetranslate({ running: true, done: 0, total, failed: 0, finished: false });
     let done = 0; let failed = 0;
-    for (let at = 0; at < ids.length; at += 20) {
-      const chunk = ids.slice(at, at + 20);
+    // Single words in batches of 20; phrases a few at a time, each checked like a live lookup.
+    const chunks: Array<{ action: "retranslate-words" | "retranslate-phrases"; ids: number[] }> = [];
+    for (let at = 0; at < singles.length; at += 20) chunks.push({ action: "retranslate-words", ids: singles.slice(at, at + 20) });
+    for (let at = 0; at < phrases.length; at += 4) chunks.push({ action: "retranslate-phrases", ids: phrases.slice(at, at + 4) });
+    for (const chunk of chunks) {
       let ok = false;
       for (let attempt = 0; attempt < 2 && !ok; attempt++) {
         try {
-          const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "retranslate-words", ids: chunk }) });
+          const response = await fetch("/api/library", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(chunk) });
           const data = await json<{ updated?: Array<{ id: number; translation: string }>; error?: string }>(response);
           if (!response.ok) throw new Error(data.error || "翻译失败");
           const map = new Map((data.updated ?? []).map((item) => [item.id, item.translation]));
           setWords((items) => items.map((item) => map.has(item.id) ? { ...item, translation: map.get(item.id)! } : item));
+          failed += chunk.ids.length - map.size;
           ok = true;
         } catch (error) {
-          if (attempt === 1) { failed += chunk.length; if (error instanceof Error && /API Key|连接 AI|余额/.test(error.message)) { toast.error(error.message); setRetranslate({ running: false, done, total: ids.length, failed: ids.length - done, finished: true }); return; } }
+          if (attempt === 1) { failed += chunk.ids.length; if (error instanceof Error && /API Key|连接 AI|余额/.test(error.message)) { toast.error(error.message); setRetranslate({ running: false, done, total, failed: total - done, finished: true }); return; } }
         }
       }
-      done += chunk.length;
-      setRetranslate({ running: true, done, total: ids.length, failed, finished: false });
+      done += chunk.ids.length;
+      setRetranslate({ running: true, done, total, failed, finished: false });
     }
-    setRetranslate({ running: false, done, total: ids.length, failed, finished: true });
+    setRetranslate({ running: false, done, total, failed, finished: true });
   }
 
   async function removeItem(kind: "word" | "sentence", id: number) {
@@ -1062,7 +1068,7 @@ export default function Home() {
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.some((word) => !word.text.includes(" ") && englishLemmaCandidates(word.text).some((candidate) => flashcardVocab.has(candidate)))} onClick={() => setWallOpen(true)} aria-label="翻卡" title="翻卡（单词表里的词）"><Shuffle className="size-4" /></Button>
                     <Button variant="outline" size="icon" className="rounded-xl" aria-pressed={translationsHidden} onClick={() => { setTranslationsHidden((hidden) => !hidden); setRevealedWordIds([]); setPinnedWordId(null); setExpandedWordId(null); }} aria-label={translationsHidden ? "显示释义" : "隐藏释义"} title={translationsHidden ? "显示释义" : "隐藏释义"}>{translationsHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}</Button>
                     <Button variant="outline" size="icon" className="rounded-xl" disabled={!bookItems.some((word) => !word.similarJson) || enrichingIds.length > 0} onClick={() => void enrichMissingWords()} aria-label="生成联想" title="生成联想">{enrichingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}</Button>
-                    {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => !word.text.includes(" ")) || retranslate.running} onClick={() => { if (!retranslate.running) setRetranslate((current) => ({ ...current, finished: false, done: 0, failed: 0 })); setRetranslateOpen(true); }} aria-label="重新翻译释义" title="重新翻译释义">{retranslate.running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</Button>}
+                    {<Button variant="outline" size="icon" className="rounded-xl" disabled={!words.length || retranslate.running} onClick={() => { if (!retranslate.running) setRetranslate((current) => ({ ...current, finished: false, done: 0, failed: 0 })); setRetranslateOpen(true); }} aria-label="重新翻译释义" title="重新翻译释义">{retranslate.running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}</Button>}
                     {!isPhraseBook && <Button variant="outline" size="icon" className="rounded-xl" disabled={!words.some((word) => word.syncStatus !== "synced" && !word.text.includes(" ")) || syncingIds.length > 0} onClick={() => void syncWords(words.filter((word) => word.syncStatus !== "synced" && !word.text.includes(" ")).map((word) => word.id))} aria-label="同步墨墨" title="同步墨墨">{syncingIds.length > 0 ? <Loader2 className="size-4 animate-spin" /> : <Cloud className="size-4" />}</Button>}
                   <Button variant="outline" size="icon" className="rounded-xl" disabled={!filteredWords.length} onClick={startWordSelection} aria-label="批量删除" title="批量删除"><Trash2 className="size-4" /></Button>
                 </>
@@ -1119,10 +1125,10 @@ export default function Home() {
           {retranslate.running || retranslate.finished ? (
             <div className="retranslate-progress" role="status">
               <div className="retranslate-bar"><span style={{ width: `${retranslate.total ? (retranslate.done / retranslate.total) * 100 : 0}%` }} /></div>
-              <p>{retranslate.finished ? `完成：${retranslate.done - retranslate.failed} 个单词已更新${retranslate.failed ? `，${retranslate.failed} 个失败，可以再试一次` : ""}` : `正在翻译 ${retranslate.done} / ${retranslate.total}…`}</p>
+              <p>{retranslate.finished ? `完成：${retranslate.done - retranslate.failed} 条已更新${retranslate.failed ? `，${retranslate.failed} 个失败，可以再试一次` : ""}` : `正在翻译 ${retranslate.done} / ${retranslate.total}…`}</p>
               {retranslate.finished && <p className="retranslate-note">已经同步到墨墨的单词，墨墨里的释义不会跟着改。</p>}
             </div>
-          ) : <p className="retranslate-note">共 {words.filter((word) => !word.text.includes(" ")).length} 个单词，每个只保留句中的那个意思。</p>}
+          ) : <p className="retranslate-note">共 {words.length} 条（单词和词组），每条只保留句中的那个意思。</p>}
           <div className="retranslate-actions">
             {retranslate.finished || retranslate.running
               ? <Button className="rounded-xl" disabled={retranslate.running} onClick={() => setRetranslateOpen(false)}>{retranslate.running ? <><Loader2 className="size-4 animate-spin" />翻译中</> : "完成"}</Button>

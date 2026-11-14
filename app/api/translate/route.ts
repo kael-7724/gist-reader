@@ -1,4 +1,4 @@
-import { translateWithDeepSeek, translateWordWithDeepSeek } from "@/lib/deepseek";
+import { translatePhraseWithDeepSeek, translateWithDeepSeek, translateWordWithDeepSeek } from "@/lib/deepseek";
 import { database, message, ownerId } from "@/lib/site-data";
 
 function normalize(value: string) {
@@ -17,7 +17,10 @@ export async function POST(request: Request) {
     if (payload.type === "word" && payload.mode === "realtime") {
       return Response.json({ ...await translateWordWithDeepSeek(request, owner, text, payload.context || ""), source: "deepseek-realtime" });
     }
-    if (payload.mode === "realtime" || payload.type === "phrase") {
+    if (payload.type === "phrase") {
+      return Response.json({ ...await translatePhraseWithDeepSeek(request, owner, text, payload.context || ""), source: "deepseek-realtime" });
+    }
+    if (payload.mode === "realtime") {
       return Response.json({ translation: await translateWithDeepSeek(request, owner, text, payload.type, payload.context || ""), source: "deepseek-realtime" });
     }
     if (article.translation_status === "pending" || article.translation_status === "processing") return Response.json({ error: "文章正在后台翻译，请稍后再试" }, { status: 409 });
