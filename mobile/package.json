@@ -1,0 +1,14 @@
+{
+  "name": "gist-ios",
+  "private": true,
+  "version": "1.0.0",
+  "description": "iOS shell for gist.kkpcenluv.fun",
+  "scripts": {},
+  "dependencies": {
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/ios": "^8.6.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4"
+  }
+}

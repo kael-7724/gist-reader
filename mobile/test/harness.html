@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;background:#121212;color:#e8e6e1;font:15px -apple-system,sans-serif}
+  .workspace{height:100dvh;display:flex;flex-direction:column}
+  .top{height:52px;background:#c4262e;display:flex;align-items:center;padding:0 16px;font-weight:600}
+  .content{flex:1;min-height:0;overflow:auto;padding:16px}
+  .bottom{height:44px;background:#2f6fde;display:flex;align-items:center;justify-content:center}
+  .fixed{position:fixed;left:0;right:0;bottom:0;height:6px;background:#3cb371}
+</style>
+</head>
+<body>
+<div class="workspace">
+  <div class="top">TOP BAR (should sit just below the status bar)</div>
+  <div class="content"><p>100dvh layout test.</p><p id="m"></p></div>
+  <div class="bottom">BOTTOM BAR (should sit just above the home indicator)</div>
+</div>
+<div class="fixed"></div>
+<script>document.getElementById('m').textContent='innerHeight='+innerHeight+' screen='+screen.height+' UA='+navigator.userAgent.slice(-40);</script>
+</body>
+</html>

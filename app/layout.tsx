@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "@fontsource-variable/newsreader/opsz.css";
 import "@fontsource/noto-serif-sc/500.css";
 import "./globals.css";
+import { APP_BRIDGE_SCRIPT } from "@/lib/app-bridge";
 
 export const metadata: Metadata = {
   title: "Gist",
@@ -25,6 +26,7 @@ export default function RootLayout({
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: "try{var m=document.cookie.match(/(?:^|; )gist_theme=(light|dark)/);if(m)document.documentElement.dataset.theme=m[1]}catch(e){}" }} />
+        <script dangerouslySetInnerHTML={{ __html: APP_BRIDGE_SCRIPT }} />
       </head>
       <body className="antialiased">{children}</body>
     </html>

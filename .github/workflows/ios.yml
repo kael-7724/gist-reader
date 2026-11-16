@@ -1,0 +1,92 @@
+name: iOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["mobile/**", ".github/workflows/ios.yml"]
+
+jobs:
+  ipa:
+    name: Unsigned IPA (device)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx cap sync ios
+      - name: Build for iPhone without signing
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -40
+      - name: Package IPA
+        run: |
+          mkdir -p out/Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app out/Payload/
+          cd out && zip -qry Gist.ipa Payload && ls -la Gist.ipa
+          /usr/libexec/PlistBuddy -c 'Print' Payload/App.app/Info.plist | head -40
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gist-ipa
+          path: mobile/out/Gist.ipa
+          if-no-files-found: error
+
+  simulator:
+    name: Simulator screenshots
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Boot an iPhone simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; c=[x for r,l in d.items() if 'iOS' in r for x in l if x['name'].startswith('iPhone') and 'Pro' in x['name'] and 'Max' not in x['name']]; print(c[-1]['udid'])")
+          echo "UDID=$UDID" >> $GITHUB_ENV
+          xcrun simctl boot "$UDID"; xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl list devices | grep Booted
+          mkdir -p shots
+      - name: Build and run the real app (live site)
+        run: |
+          set -o pipefail
+          npx cap sync ios
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator \
+            -destination "id=$UDID" -derivedDataPath simbuild CODE_SIGNING_ALLOWED=NO build | tail -5
+          APP=simbuild/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl ui "$UDID" appearance light
+          xcrun simctl launch "$UDID" fun.kkpcenluv.gist; sleep 1.2; xcrun simctl io "$UDID" screenshot shots/0-launch-light.png
+          sleep 14; xcrun simctl io "$UDID" screenshot shots/1-login-light.png
+          xcrun simctl terminate "$UDID" fun.kkpcenluv.gist
+          xcrun simctl ui "$UDID" appearance dark
+          xcrun simctl launch "$UDID" fun.kkpcenluv.gist; sleep 1.2; xcrun simctl io "$UDID" screenshot shots/2-launch-dark.png
+          sleep 14; xcrun simctl io "$UDID" screenshot shots/3-login-dark.png
+          xcrun simctl terminate "$UDID" fun.kkpcenluv.gist
+      - name: Layout harness (full-height page like the reader)
+        run: |
+          set -o pipefail
+          cp test/harness.html www/index.html
+          python3 -c "import json; c=json.load(open('capacitor.config.json')); c['server'].pop('url'); c['server'].pop('errorPath'); json.dump(c,open('capacitor.config.json','w'))"
+          npx cap sync ios
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator \
+            -destination "id=$UDID" -derivedDataPath simbuild CODE_SIGNING_ALLOWED=NO build | tail -5
+          xcrun simctl install "$UDID" simbuild/Build/Products/Debug-iphonesimulator/App.app
+          xcrun simctl launch "$UDID" fun.kkpcenluv.gist; sleep 8
+          xcrun simctl io "$UDID" screenshot shots/4-harness.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-shots
+          path: mobile/shots/

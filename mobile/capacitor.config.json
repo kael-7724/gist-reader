@@ -1,0 +1,25 @@
+{
+  "appId": "fun.kkpcenluv.gist",
+  "appName": "Gist",
+  "webDir": "www",
+  "server": {
+    "url": "https://gist.kkpcenluv.fun",
+    "cleartext": false,
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "always",
+    "appendUserAgent": "GistApp/1.0",
+    "backgroundColor": "#121212",
+    "scrollEnabled": true,
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 4000,
+      "launchFadeOutDuration": 250,
+      "showSpinner": false
+    }
+  }
+}

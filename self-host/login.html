@@ -60,5 +60,6 @@
   </form>
   <footer>没有账号？请向网站管理员索取</footer>
 </main>
+<script>(function(){var C=window.Capacitor;if(!C||!C.nativePromise)return;var r=document.documentElement;function s(){C.nativePromise("StatusBar","setStyle",{style:r.dataset.theme==="light"?"LIGHT":"DARK"}).catch(function(){})}s();new MutationObserver(s).observe(r,{attributes:true,attributeFilter:["data-theme"]});function h(){C.nativePromise("SplashScreen","hide",{fadeOutDuration:250}).catch(function(){})}if(document.readyState==="complete")h();else addEventListener("load",h)})()</script>
 </body>
 </html>

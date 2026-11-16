@@ -1,0 +1,4 @@
+// Runs only inside the Gist iOS app, where Capacitor injects window.Capacitor; in a normal browser it does nothing.
+// The status bar text follows the site theme (dark by default, light when data-theme="light"), and the launch
+// screen stays up until the page has loaded instead of flashing an empty view.
+export const APP_BRIDGE_SCRIPT = `(function(){var C=window.Capacitor;if(!C||!C.nativePromise)return;var r=document.documentElement;function s(){C.nativePromise("StatusBar","setStyle",{style:r.dataset.theme==="light"?"LIGHT":"DARK"}).catch(function(){})}s();new MutationObserver(s).observe(r,{attributes:true,attributeFilter:["data-theme"]});function h(){C.nativePromise("SplashScreen","hide",{fadeOutDuration:250}).catch(function(){})}if(document.readyState==="complete")h();else addEventListener("load",h)})()`;
